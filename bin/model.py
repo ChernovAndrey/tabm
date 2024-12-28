@@ -33,7 +33,7 @@ from lib import KWArgs, PartKey
 
 
 def _get_first_ensemble_layer(
-    backbone: lib.deep.MLP,
+        backbone: lib.deep.MLP,
 ) -> lib.deep.LinearEfficientEnsemble:
     if isinstance(backbone, lib.deep.MLP):
         return backbone.blocks[0][0]  # type: ignore[code]
@@ -43,9 +43,9 @@ def _get_first_ensemble_layer(
 
 @torch.inference_mode()
 def _init_first_adapter(
-    weight: Tensor,
-    distribution: Literal['normal', 'random-signs'],
-    init_sections: list[int],
+        weight: Tensor,
+        distribution: Literal['normal', 'random-signs'],
+        init_sections: list[int],
 ) -> None:
     """Initialize the first adapter.
 
@@ -75,41 +75,41 @@ def _init_first_adapter(
         # from the given distribution.
         w = torch.empty((len(weight), 1), dtype=weight.dtype, device=weight.device)
         init_fn_(w)
-        weight[:, section_bounds[i] : section_bounds[i + 1]] = w
+        weight[:, section_bounds[i]: section_bounds[i + 1]] = w
 
 
 class Model(nn.Module):
     """MLP & TabM."""
 
     def __init__(
-        self,
-        *,
-        n_num_features: int,
-        cat_cardinalities: list[int],
-        n_classes: None | int,
-        backbone: dict,
-        bins: None | list[Tensor],  # For piecewise-linear encoding/embeddings.
-        num_embeddings: None | dict = None,
-        arch_type: Literal[
-            # Plain feed-forward network without any kind of ensembling.
-            'plain',
-            #
-            # TabM-mini
-            'tabm-mini',
-            #
-            # TabM-mini. The first adapter is initialized from the normal distribution.
-            # This is used in Section 5.1.
-            'tabm-mini-normal',
-            #
-            # TabM
-            'tabm',
-            #
-            # TabM. The first adapter is initialized from the normal distribution.
-            # This variation was is not used in the paper, but there is a preliminary
-            # evidence that may be a better default strategy.
-            'tabm-normal',
-        ],
-        k: None | int = None,
+            self,
+            *,
+            n_num_features: int,
+            cat_cardinalities: list[int],
+            n_classes: None | int,
+            backbone: dict,
+            bins: None | list[Tensor],  # For piecewise-linear encoding/embeddings.
+            num_embeddings: None | dict = None,
+            arch_type: Literal[
+                # Plain feed-forward network without any kind of ensembling.
+                'plain',
+                    #
+                    # TabM-mini
+                'tabm-mini',
+                    #
+                    # TabM-mini. The first adapter is initialized from the normal distribution.
+                    # This is used in Section 5.1.
+                'tabm-mini-normal',
+                    #
+                    # TabM
+                'tabm',
+                    #
+                    # TabM. The first adapter is initialized from the normal distribution.
+                    # This variation was is not used in the paper, but there is a preliminary
+                    # evidence that may be a better default strategy.
+                'tabm-normal',
+            ],
+            k: None | int = None,
     ) -> None:
         # >>> Validate arguments.
         assert n_num_features >= 0
@@ -159,7 +159,11 @@ class Model(nn.Module):
         # >>> Backbone
         d_flat = d_num + d_cat
         self.minimal_ensemble_adapter = None
-        self.backbone = lib.deep.make_module(d_in=d_flat, **backbone)
+        if backbone['type'] in ['BMoE', 'BMoIE']:
+            d_out = 1 if n_classes is None else n_classes
+        else:
+            d_out = None
+        self.backbone = lib.deep.make_module(d_in=d_flat, **backbone, d_out=d_out)
 
         if arch_type != 'plain':
             assert k is not None
@@ -207,20 +211,24 @@ class Model(nn.Module):
                 raise ValueError(f'Unknown arch_type: {arch_type}')
 
         # >>> Output
-        d_block = backbone['d_block']
-        d_out = 1 if n_classes is None else n_classes
-        self.output = (
-            nn.Linear(d_block, d_out)
-            if arch_type == 'plain'
-            else lib.deep.NLinear(k, d_block, d_out)  # type: ignore[code]
-        )
+
+        if backbone['type'] in ['BMoE', 'BMoIE']:
+            self.output = None
+        else:
+            d_block = backbone['d_block']
+            d_out = 1 if n_classes is None else n_classes
+            self.output = (
+                nn.Linear(d_block, d_out)
+                if arch_type == 'plain'
+                else lib.deep.NLinear(k, d_block, d_out)  # type: ignore[code]
+            )
 
         # >>>
         self.arch_type = arch_type
         self.k = k
 
     def forward(
-        self, x_num: None | Tensor = None, x_cat: None | Tensor = None
+            self, x_num: None | Tensor = None, x_cat: None | Tensor = None
     ) -> Tensor:
         x = []
         if x_num is not None:
@@ -240,7 +248,8 @@ class Model(nn.Module):
             assert self.minimal_ensemble_adapter is None
 
         x = self.backbone(x)
-        x = self.output(x)
+        if self.output is not None:
+            x = self.output(x)
         if self.k is None:
             # Adjust the output shape for plain networks to make them compatible
             # with the rest of the script (loss, metrics, predictions, ...).
@@ -300,10 +309,10 @@ class Config(TypedDict):
 
 
 def main(
-    config: Config | str | Path,
-    output: None | str | Path = None,
-    *,
-    force: bool = False,
+        config: Config | str | Path,
+        output: None | str | Path = None,
+        *,
+        force: bool = False,
 ) -> None | lib.JSONDict:
     # >>> Start
     config, output = lib.check(config, output, config_type=Config)
@@ -426,8 +435,8 @@ def main(
     amp_dtype = (
         torch.bfloat16
         if config.get('amp', False)
-        and torch.cuda.is_available()
-        and torch.cuda.is_bf16_supported()
+           and torch.cuda.is_available()
+           and torch.cuda.is_bf16_supported()
         # else torch.float16
         # if config.get('amp', False) and and torch.cuda.is_available()
         else None
@@ -459,7 +468,7 @@ def main(
 
     @evaluation_mode()
     def evaluate(
-        parts: list[PartKey], eval_batch_size: int
+            parts: list[PartKey], eval_batch_size: int
     ) -> tuple[
         dict[PartKey, Any], dict[PartKey, np.ndarray], dict[PartKey, np.ndarray], int
     ]:
@@ -473,13 +482,53 @@ def main(
                             [
                                 apply_model(part, idx)
                                 for idx in torch.arange(
-                                    dataset.size(part), device=device
-                                ).split(eval_batch_size)
+                                dataset.size(part), device=device
+                            ).split(eval_batch_size)
                             ]
                         )
                         .cpu()
                         .numpy()
                     )
+                    pred = (
+                        torch.cat(
+                            [
+                                # Perform num_samples predictions for every point
+                                torch.stack(
+                                    [
+                                        apply_model(part, idx)  # Predict for the current batch
+                                        for _ in range(5)  # Repeat num_samples times
+                                    ],
+                                    dim=0,  # Stack predictions along a new dimension
+                                )
+                                for idx in torch.arange(
+                                dataset.size(part), device=device
+                            ).split(eval_batch_size)  # Split dataset into manageable chunks
+                            ]
+                        )
+                        .cpu()
+                    )
+                    # print(f'pred shape: {pred.shape}')
+                    # print(f'pred: {torch.softmax(pred[0:2, 0, ], dim=-1).numpy()}')
+                    head_predictions[part] = pred.numpy().mean(axis=0)
+                    # head_predictions[part] = (
+                    #     torch.cat(
+                    #         [
+                    #             # Perform num_samples predictions for every point
+                    #             torch.stack(
+                    #                 [
+                    #                     apply_model(part, idx)  # Predict for the current batch
+                    #                     for _ in range(10)  # Repeat num_samples times
+                    #                 ],
+                    #                 dim=0,  # Stack predictions along a new dimension
+                    #             ).mean(dim=0)  # Average over the num_samples dimension
+                    #             for idx in torch.arange(
+                    #             dataset.size(part), device=device
+                    #         ).split(eval_batch_size)  # Split dataset into manageable chunks
+                    #         ]
+                    #     )
+                    #     .cpu()
+                    #     .numpy()
+                    # )
                 except RuntimeError as err:
                     if not lib.is_oom_exception(err):
                         raise
@@ -489,6 +538,7 @@ def main(
                     break
             if not eval_batch_size:
                 RuntimeError('Not enough memory even for eval_batch_size=1')
+        print(f"head prediction shape: {head_predictions['test'].shape}")
         if dataset.task.is_regression:
             assert regression_label_stats is not None
             head_predictions = {
@@ -539,25 +589,27 @@ def main(
 
         model.train()
         epoch_losses = []
+        epoch_losses_kl = []
         for batch_idx in tqdm(
-            torch.randperm(
-                len(dataset.data['y']['train']),
-                generator=batch_generator,
-                device=device,
-            ).split(batch_size),
-            desc=f'Epoch {step // epoch_size} Step {step}',
+                torch.randperm(
+                    len(dataset.data['y']['train']),
+                    generator=batch_generator,
+                    device=device,
+                ).split(batch_size),
+                desc=f'Epoch {step // epoch_size} Step {step}',
         ):
-            loss, new_chunk_size = lib.deep.zero_grad_forward_backward(
+            loss, kl_loss, new_chunk_size = lib.deep.zero_grad_forward_backward(
                 optimizer,
                 lambda idx: loss_fn(apply_model('train', idx), Y_train[idx]),
+                lambda: model.backbone.get_kl_loss() if hasattr(model.backbone, 'get_kl_loss') else torch.tensor(0.0).to(device),
                 batch_idx,
                 chunk_size or batch_size,
                 grad_scaler,
             )
 
             if parameter_statistics and (
-                step % epoch_size == 0  # The first batch of the epoch.
-                or step // epoch_size == 0  # The first epoch.
+                    step % epoch_size == 0  # The first batch of the epoch.
+                    or step // epoch_size == 0  # The first epoch.
             ):
                 for k, v in lib.deep.compute_parameter_stats(model).items():
                     writer.add_scalars(k, v, step, timer.elapsed())
@@ -576,30 +628,42 @@ def main(
                 grad_scaler.update()
 
             step += 1
-            epoch_losses.append(loss.detach())
+            kl_loss = kl_loss.detach()
+            epoch_losses.append(loss.detach() - kl_loss)
+            epoch_losses_kl.append(kl_loss)
             if new_chunk_size and new_chunk_size < (chunk_size or batch_size):
                 chunk_size = new_chunk_size
                 logger.warning(f'chunk_size = {chunk_size}')
 
+        if hasattr(model.backbone, 'stat_alpha_sum'):
+            print(
+                f"alphas after {step // epoch_size}: {model.backbone.stat_alpha_sum / dataset.size('train')}")
+            model.backbone.stat_alpha_sum = None
+
         epoch_losses = torch.stack(epoch_losses).tolist()
         mean_loss = statistics.mean(epoch_losses)
+
+        epoch_losses_kl = torch.stack(epoch_losses_kl).tolist()
+        mean_loss_kl = statistics.mean(epoch_losses_kl)
         metrics, predictions, _, eval_batch_size = evaluate(
-            ['val', 'test'], eval_batch_size
+            ['train', 'val', 'test'], eval_batch_size
         )
 
         training_log.append(
             {'epoch-losses': epoch_losses, 'metrics': metrics, 'time': timer.elapsed()}
         )
-        lib.print_metrics(mean_loss, metrics)
+        lib.print_metrics(mean_loss, mean_loss_kl, metrics)
+
         writer.add_scalars('loss', {'train': mean_loss}, step, timer.elapsed())
+        writer.add_scalars('loss_kl', {'train': mean_loss_kl}, step, timer.elapsed())
         for part in metrics:
             writer.add_scalars(
                 'score', {part: metrics[part]['score']}, step, timer.elapsed()
             )
 
         if (
-            'metrics' not in report
-            or metrics['val']['score'] > report['metrics']['val']['score']
+                'metrics' not in report
+                or metrics['val']['score'] > report['metrics']['val']['score']
         ):
             print('🌸 New best epoch! 🌸')
             report['best_step'] = step
@@ -628,28 +692,28 @@ def main(
 
     # >>> Submodel selection (TabM[B] & TabM[G]).
     if (
-        config.get('head_selection', True)
-        and head_predictions['train'].shape[1] > 1
-        # The following conditions is a hack preventing the head selection during
-        # the hyperparameter tuning, because bin/tune.py runs training
-        # outside of the project directory.
-        and lib.env.get_project_dir() in output.parents
-        and output.parent.name != 'trials'
+            config.get('head_selection', True)
+            and head_predictions['train'].shape[1] > 1
+            # The following conditions is a hack preventing the head selection during
+            # the hyperparameter tuning, because bin/tune.py runs training
+            # outside of the project directory.
+            and lib.env.get_project_dir() in output.parents
+            and output.parent.name != 'trials'
     ):
         if output.parent.name.endswith('-evaluation'):
             best_head_output = (
-                output.parent.with_name(
-                    output.parent.name.removesuffix('-evaluation')
-                    + '-best-head-evaluation'
-                )
-                / output.name
+                    output.parent.with_name(
+                        output.parent.name.removesuffix('-evaluation')
+                        + '-best-head-evaluation'
+                    )
+                    / output.name
             )
             greedy_heads_output = (
-                output.parent.with_name(
-                    output.parent.name.removesuffix('-evaluation')
-                    + '-greedy-heads-evaluation'
-                )
-                / output.name
+                    output.parent.with_name(
+                        output.parent.name.removesuffix('-evaluation')
+                        + '-greedy-heads-evaluation'
+                    )
+                    / output.name
             )
         else:
             best_head_output = output.with_name(output.name + '-best-head')
@@ -717,7 +781,7 @@ def main(
                     prediction_type,
                 )['val']['score']
                 if candidate_score > greedy_score and (
-                    new_score is None or candidate_score > new_score
+                        new_score is None or candidate_score > new_score
                 ):
                     new_idx = candidate_idx
                     new_score = candidate_score
