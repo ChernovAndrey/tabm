@@ -352,15 +352,18 @@ class BMoE(nn.Module):
             activation: str = 'ReLU',
             num_experts: int,
             gating_type: str,  # ['standard' or 'bayesian']
-            gating_prior_std: int = 1.0,
+            kl_factor: int,
+            gating_prior_std: int,
+            num_samples: int = 10,
             device: str = 'cpu',  # TODO: check whether is it necessary to pass
     ) -> None:
         assert gating_type in ['standard', 'bayesian']
         super().__init__()
         self.device = device
+        self.kl_factor = kl_factor
         self.num_experts = num_experts
         self.gating_type = gating_type
-
+        self.num_samples = num_samples
         print(f'gating type:{self.gating_type}')
         d_first = d_block // num_experts if d_in is None else d_in
 
@@ -417,31 +420,68 @@ class BMoE(nn.Module):
         print(self.experts)
 
     def forward(self, x: Tensor) -> Tensor:
-        # Get gating weights
-        alpha = self.gate(x)
+        """
+        If self.training is True:
+           - Sample one alpha from gate (as usual),
+           - Optionally store statistics,
+           - Compute and return the weighted sum of expert outputs.
+        If self.training is False (eval mode):
+           - Sample 10 alphas from gate,
+           - Compute expert outputs once (they're standard),
+           - Average the weighted sums over those 10 alpha samples.
+        """
+        expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
 
-        # store for later analysis
         if self.training:
+            # 1) Compute gating weights
+            alpha = self.gate(x)
+
+            # 2) Store alpha stats if needed
             if self.stat_alpha_sum is None:
                 self.stat_alpha_sum = alpha.sum(axis=0).detach().cpu().numpy()
             else:
                 self.stat_alpha_sum += alpha.sum(axis=0).detach().cpu().numpy()
-        # Compute expert outputs
-        expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
 
-        # Weighted sum of expert outputs
-        output = torch.sum(alpha.unsqueeze(-1) * expert_outputs, dim=1)
+            # 4) Weighted sum of expert outputs
+            #    alpha shape: [batch_size, num_experts]
+            #    alpha.unsqueeze(-1) => [batch_size, num_experts, 1]
+            #    multiply by expert_outputs => [batch_size, num_experts, output_dim]
+            output = torch.sum(alpha.unsqueeze(-1) * expert_outputs, dim=1)
+
+        else:
+            # EVAL MODE (Bayesian ensemble)
+
+            # 1) Compute expert outputs once
+            expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
+            # shape: [batch_size, num_experts, output_dim]
+
+            # 2) Sample multiple (e.g., 10) gating distributions
+            #    Each alpha_i has shape [batch_size, num_experts]
+            alphas = torch.stack([self.gate(x) for _ in range(self.num_samples)], dim=0)
+            # shape: [10, batch_size, num_experts]
+
+            # 3) Compute the weighted outputs for each alpha
+            #    Expand alphas => [10, batch_size, num_experts, 1]
+            #    Expand expert_outputs => [1, batch_size, num_experts, output_dim]
+            #    => multiplied => [10, batch_size, num_experts, output_dim]
+            weighted_expert_outputs = alphas.unsqueeze(-1) * expert_outputs.unsqueeze(0)
+
+            # 4) Sum over experts => [10, batch_size, output_dim]
+            weighted_sums = torch.sum(weighted_expert_outputs, dim=2)
+
+            # 5) Average across the 10 samples => [batch_size, output_dim]
+            output = weighted_sums.mean(dim=0)
+
         return output
 
     def get_kl_loss(self):
         """
         Only gating is Bayesian, so just return gating's KL.
         """
-        print('hello')
         if self.gating_type == 'standard':
-            return torch.tensor([0.0])
+            return torch.tensor(0.0).to(self.device)
         elif self.gating_type == 'bayesian':
-            return self.gate.kl_loss()
+            return self.kl_factor * self.gate.kl_loss()
         else:
             assert False, f'The gating type {self.gating_type} is not supported'
 
@@ -465,8 +505,8 @@ class MoIEBlock(nn.Module):
             nn.Linear(in_dim, out_dim) for _ in range(num_experts)
         ])
 
-        # We'll apply ReLU after combination if activation=True
-        self.relu = nn.ReLU()
+        if self.activation:
+            self.relu = nn.ReLU()
 
     def forward(self, x, alpha):
         """
@@ -516,6 +556,7 @@ class BMoIE(nn.Module):
             d_block: int,
             dropout: float,
             activation: str = 'ReLU',
+            # activation: str = 'GELU',
             num_experts: int,
             gating_type: str,  # ['standard' or 'bayesian']
             kl_factor: int,
@@ -574,9 +615,9 @@ class BMoIE(nn.Module):
 
         self.output = None if d_out is None else MoIEBlock(d_block // num_experts, d_out, num_experts, activation=False)
         print(f'd_out:{d_out}')
+        print(self.blocks)
         print('output:')
         print(self.output)
-        print(self.blocks)
 
         self.device = device
         self.gating_type = gating_type
@@ -584,7 +625,7 @@ class BMoIE(nn.Module):
 
     def forward(self, x):
         """
-        x shape: (B, input_dim) = (B, 784) for MNIST
+        x shape: (B, input_dim)
         alpha shape: (B, K)
 
         For simplicity, we'll assume we use the *same* alpha at each layer.
@@ -622,7 +663,7 @@ class BMoIE(nn.Module):
         Only gating is Bayesian, so just return gating's KL.
         """
         if self.gating_type == 'standard':
-            return torch.tensor([0.0]).to(self.device)
+            return torch.tensor(0.0).to(self.device)
         elif self.gating_type == 'bayesian':
             return self.kl_factor * self.gate.kl_loss()
         else:

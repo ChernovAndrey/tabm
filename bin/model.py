@@ -477,6 +477,38 @@ def main(
         for part in parts:
             while eval_batch_size:
                 try:
+                    # head_predictions[part] = (
+                    #     torch.cat(
+                    #         [
+                    #             apply_model(part, idx)
+                    #             for idx in torch.arange(
+                    #             dataset.size(part), device=device
+                    #         ).split(eval_batch_size)
+                    #         ]
+                    #     )
+                    #     .cpu()
+                    #     .numpy()
+                    # )
+                    # pred = (
+                    #     torch.cat(
+                    #         [
+                    #             # Perform num_samples predictions for every point
+                    #             torch.stack(
+                    #                 [
+                    #                     apply_model(part, idx)  # Predict for the current batch
+                    #                     for _ in range(5)  # Repeat num_samples times
+                    #                 ],
+                    #                 dim=0,  # Stack predictions along a new dimension
+                    #             )
+                    #             for idx in torch.arange(
+                    #             dataset.size(part), device=device
+                    #         ).split(eval_batch_size)  # Split dataset into manageable chunks
+                    #         ]
+                    #     )
+                    #     .cpu()
+                    # )
+                    # head_predictions[part] = pred.numpy().mean(axis=0)
+
                     head_predictions[part] = (
                         torch.cat(
                             [
@@ -489,46 +521,6 @@ def main(
                         .cpu()
                         .numpy()
                     )
-                    pred = (
-                        torch.cat(
-                            [
-                                # Perform num_samples predictions for every point
-                                torch.stack(
-                                    [
-                                        apply_model(part, idx)  # Predict for the current batch
-                                        for _ in range(5)  # Repeat num_samples times
-                                    ],
-                                    dim=0,  # Stack predictions along a new dimension
-                                )
-                                for idx in torch.arange(
-                                dataset.size(part), device=device
-                            ).split(eval_batch_size)  # Split dataset into manageable chunks
-                            ]
-                        )
-                        .cpu()
-                    )
-                    # print(f'pred shape: {pred.shape}')
-                    # print(f'pred: {torch.softmax(pred[0:2, 0, ], dim=-1).numpy()}')
-                    head_predictions[part] = pred.numpy().mean(axis=0)
-                    # head_predictions[part] = (
-                    #     torch.cat(
-                    #         [
-                    #             # Perform num_samples predictions for every point
-                    #             torch.stack(
-                    #                 [
-                    #                     apply_model(part, idx)  # Predict for the current batch
-                    #                     for _ in range(10)  # Repeat num_samples times
-                    #                 ],
-                    #                 dim=0,  # Stack predictions along a new dimension
-                    #             ).mean(dim=0)  # Average over the num_samples dimension
-                    #             for idx in torch.arange(
-                    #             dataset.size(part), device=device
-                    #         ).split(eval_batch_size)  # Split dataset into manageable chunks
-                    #         ]
-                    #     )
-                    #     .cpu()
-                    #     .numpy()
-                    # )
                 except RuntimeError as err:
                     if not lib.is_oom_exception(err):
                         raise
