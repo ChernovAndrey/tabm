@@ -687,7 +687,7 @@ def main(
             config.get('head_selection', True)
             and head_predictions['train'].shape[1] > 1
             # The following conditions is a hack preventing the head selection during
-            # the hyperparameter tuning, because bin/tune.py runs training
+            # the hyperparameter tuning, because _bin/tune.py runs training
             # outside of the project directory.
             and lib.env.get_project_dir() in output.parents
             and output.parent.name != 'trials'

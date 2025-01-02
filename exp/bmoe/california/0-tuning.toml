@@ -1,5 +1,5 @@
 seed = 0
-function = "bin.model.main"
+function = "_bin.model.main"
 n_trials = 100
 sampler = { n_startup_trials = 20 }
 

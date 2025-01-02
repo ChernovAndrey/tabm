@@ -433,7 +433,7 @@ def import_(qualname: str) -> Any:
     """
     Examples:
 
-    >>> import_('bin.model.main')
+    >>> import_('_bin.model.main')
     """
     try:
         module, name = qualname.rsplit('.', 1)
@@ -446,8 +446,8 @@ def get_function_full_name(function: Callable) -> str:
     """
     Examples:
 
-    >>> # In the script bin/model.py
-    >>> get_function_full_name(main) == 'bin.model.main'
+    >>> # In the script _bin/model.py
+    >>> get_function_full_name(main) == '_bin.model.main'
 
     >>> # In the script a/b/c/foo.py
     >>> assert get_function_full_name(main) == 'a.b.c.foo.main'
