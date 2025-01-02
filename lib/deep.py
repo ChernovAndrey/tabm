@@ -355,7 +355,7 @@ class BMoE(nn.Module):
             kl_factor: int,
             gating_prior_std: int,
             num_samples: int = 10,
-            device: str = 'cpu',  # TODO: check whether is it necessary to pass
+            device: str = 'cuda',  # TODO: check whether is it necessary to pass
     ) -> None:
         assert gating_type in ['standard', 'bayesian']
         super().__init__()
