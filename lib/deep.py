@@ -359,7 +359,10 @@ class BMoE(nn.Module):
     ) -> None:
         assert gating_type in ['standard', 'bayesian']
         super().__init__()
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print("Using device:", device)
         self.device = device
+
         self.kl_factor = kl_factor
         self.num_experts = num_experts
         self.gating_type = gating_type
