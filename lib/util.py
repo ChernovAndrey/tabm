@@ -342,14 +342,19 @@ def print_config(config: dict) -> None:
 
 
 def print_metrics(loss: float, kl_loss: float, metrics: dict) -> None:
-    print(
-        f'(train) {metrics["train"]["score"]:.3f}'
-        f'(val) {metrics["val"]["score"]:.3f}'
-        f' (test) {metrics["test"]["score"]:.3f}'
-        f' (loss) {loss:.5f}'
-        f' (kl_loss) {kl_loss:.5f}'
+    output = ""
+
+    if 'train' in metrics:
+        output += f'(train) {metrics["train"]["score"]:.3f} '
+
+    output += (
+        f'(val) {metrics["val"]["score"]:.3f} '
+        f'(test) {metrics["test"]["score"]:.3f} '
+        f'(loss) {loss:.5f} '
+        f'(kl_loss) {kl_loss:.5f}'
     )
 
+    print(output)
 
 def log_scores(metrics: dict) -> None:
     logger.debug(
