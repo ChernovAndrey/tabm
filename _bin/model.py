@@ -638,7 +638,7 @@ def main(
         epoch_losses_kl = torch.stack(epoch_losses_kl).tolist()
         mean_loss_kl = statistics.mean(epoch_losses_kl)
         metrics, predictions, _, eval_batch_size = evaluate(
-            ['train', 'val', 'test'], eval_batch_size
+            ['val', 'test'], eval_batch_size
         )
 
         training_log.append(
