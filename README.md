@@ -436,13 +436,13 @@ Please, note:
 
 ```shell
 # Pixi with GPU
-pixi run -e cuda python bin/model.py exp/debug/0.toml --force
+pixi run -e cuda python _bin/model.py exp/debug/0.toml --force
 
 # Pixi without GPU
-pixi run python bin/model.py exp/debug/0.toml --force
+pixi run python _bin/model.py exp/debug/0.toml --force
 
 # Without Pixi
-python bin/model.py exp/debug/0.toml --force
+python _bin/model.py exp/debug/0.toml --force
 ```
 
 The last line of the output log should look like this:
