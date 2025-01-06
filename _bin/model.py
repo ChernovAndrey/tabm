@@ -628,8 +628,8 @@ def main(
                 logger.warning(f'chunk_size = {chunk_size}')
 
         if hasattr(model.backbone, 'stat_alpha_sum'):
-            print(
-                f"alphas after {step // epoch_size}: {model.backbone.stat_alpha_sum / dataset.size('train')}")
+            # print(
+            #     f"alphas after {step // epoch_size}: {model.backbone.stat_alpha_sum / dataset.size('train')}")
             model.backbone.stat_alpha_sum = None
 
         epoch_losses = torch.stack(epoch_losses).tolist()

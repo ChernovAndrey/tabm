@@ -40,7 +40,6 @@ gating_type = 'bayesian'
 gating_prior_std = 1.0
 kl_factor = 1e-2
 dropout=0.0
-device='cuda'
 
 [space.model.num_embeddings]
 type = "PiecewiseLinearEmbeddings"

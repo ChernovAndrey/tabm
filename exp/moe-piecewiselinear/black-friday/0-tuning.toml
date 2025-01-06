@@ -7,7 +7,7 @@ n_startup_trials = 20
 
 [space]
 seed = 0
-batch_size = 256
+batch_size = 512
 patience = 16
 n_epochs = -1
 gradient_clipping_norm = 1.0
@@ -15,7 +15,7 @@ amp = true
 
 [space.data]
 cache = true
-path = "data/churn"
+path = "data/black-friday"
 num_policy = "noisy-quantile"
 cat_policy = "ordinal"
 
@@ -38,10 +38,16 @@ num_experts = [
     40,
     4,
 ]
-gating_type = 'bayesian'
+gating_type = 'standard'
 gating_prior_std = 1.0
 kl_factor = 1e-2
-dropout=0.0
+dropout = [
+    "_tune_",
+    "?uniform",
+    0.0,
+    0.0,
+    0.5,
+]
 
 [space.model.num_embeddings]
 type = "PiecewiseLinearEmbeddings"

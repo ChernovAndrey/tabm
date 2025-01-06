@@ -1,9 +1,7 @@
 seed = 0
 function = "_bin.model.main"
 n_trials = 100
-
-[sampler]
-n_startup_trials = 20
+sampler = { n_startup_trials = 20 }
 
 [space]
 seed = 0
@@ -15,9 +13,8 @@ amp = true
 
 [space.data]
 cache = true
-path = "data/churn"
+path = "data/california"
 num_policy = "noisy-quantile"
-cat_policy = "ordinal"
 
 [space.optimizer]
 type = "AdamW"
@@ -38,10 +35,16 @@ num_experts = [
     40,
     4,
 ]
-gating_type = 'bayesian'
+gating_type = 'standard'
 gating_prior_std = 1.0
 kl_factor = 1e-2
-dropout=0.0
+dropout = [
+    "_tune_",
+    "?uniform",
+    0.0,
+    0.0,
+    0.5,
+]
 
 [space.model.num_embeddings]
 type = "PiecewiseLinearEmbeddings"

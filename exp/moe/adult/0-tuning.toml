@@ -73,4 +73,3 @@ dropout = [
     0.0,
     0.5,
 ]
-device='cuda'
