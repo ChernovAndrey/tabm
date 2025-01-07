@@ -228,7 +228,8 @@ class Model(nn.Module):
         self.k = k
 
     def forward(
-            self, x_num: None | Tensor = None, x_cat: None | Tensor = None
+            self, x_num: None | Tensor = None, x_cat: None | Tensor = None,
+            num_samples: None | int = None, return_average: None | bool = None,
     ) -> Tensor:
         x = []
         if x_num is not None:
@@ -247,14 +248,21 @@ class Model(nn.Module):
         else:
             assert self.minimal_ensemble_adapter is None
 
-        x = self.backbone(x)
+        if (return_average is not None) and (num_samples is not None):
+            x = self.backbone(x, num_samples=num_samples, return_average=return_average)
+        else:
+            x = self.backbone(x)
         if self.output is not None:
             x = self.output(x)
         if self.k is None:
             # Adjust the output shape for plain networks to make them compatible
             # with the rest of the script (loss, metrics, predictions, ...).
             # (B, D_OUT) -> (B, 1, D_OUT)
-            x = x[:, None]
+            # for bayesian ensembles (N, B, D_OUT) -> (N, B, 1, D_OUT)
+            if return_average is False:  # can not be simplified, because it might be None
+                x = x[:, :, None]
+            else:
+                x = x[:, None]
         return x
 
 
@@ -272,6 +280,9 @@ class Config(TypedDict):
     n_epochs: int
     gradient_clipping_norm: NotRequired[float]
     parameter_statistics: NotRequired[bool]
+    n_bayesian_ensembles: NotRequired[int]
+    num_samples: NotRequired[int]
+    return_average: NotRequired[bool]
     # NOTE
     # Please, read these notes before using AMP and/or `torch.compile`.
     #
@@ -456,11 +467,12 @@ def main(
         evaluation_mode = torch.inference_mode
 
     @torch.autocast(device.type, enabled=amp_enabled, dtype=amp_dtype)  # type: ignore[code]
-    def apply_model(part: PartKey, idx: Tensor) -> Tensor:
+    def apply_model(part: PartKey, idx: Tensor, return_average=None, num_samples=None) -> Tensor:
         return (
             model(
                 dataset.data['x_num'][part][idx] if 'x_num' in dataset.data else None,
                 dataset.data['x_cat'][part][idx] if 'x_cat' in dataset.data else None,
+                num_samples=num_samples, return_average=return_average
             )
             .squeeze(-1)  # Remove the last dimension for regression predictions.
             .float()
@@ -474,6 +486,8 @@ def main(
     ]:
         model.eval()
         head_predictions: dict[PartKey, np.ndarray] = {}
+        num_samples = config.get('num_samples', None)
+        return_average = config.get('return_average', None)
         for part in parts:
             while eval_batch_size:
                 try:
@@ -512,7 +526,8 @@ def main(
                     head_predictions[part] = (
                         torch.cat(
                             [
-                                apply_model(part, idx)
+                                apply_model(part, idx, return_average=return_average,
+                                            num_samples=num_samples)
                                 for idx in torch.arange(
                                 dataset.size(part), device=device
                             ).split(eval_batch_size)
@@ -530,27 +545,56 @@ def main(
                     break
             if not eval_batch_size:
                 RuntimeError('Not enough memory even for eval_batch_size=1')
-        print(f"head prediction shape: {head_predictions['test'].shape}")
-        if dataset.task.is_regression:
-            assert regression_label_stats is not None
-            head_predictions = {
-                k: v * regression_label_stats.std + regression_label_stats.mean
-                for k, v in head_predictions.items()
-            }
-        else:
-            head_predictions = {
-                k: scipy.special.softmax(v, axis=-1)
-                for k, v in head_predictions.items()
-            }
-            if dataset.task.is_binclass:
-                head_predictions = {k: v[..., 1] for k, v in head_predictions.items()}
+        # print(f"head prediction shape: {head_predictions['test'].shape}")
+        n_bayesian_ensembles = config.get('n_bayesian_ensembles', None)
+        if n_bayesian_ensembles:
+            metrics = {}
+            predictions = {}
+            for n in n_bayesian_ensembles:
+                if dataset.task.is_regression:
+                    assert regression_label_stats is not None
+                    n_predictions = {
+                        k: v[:n, ...].mean(axis=0) * regression_label_stats.std + regression_label_stats.mean
+                        for k, v in head_predictions.items()
+                    }
+                else:
+                    n_predictions = {
+                        k: scipy.special.softmax(v[:n, ...].mean(axis=0), axis=-1)
+                        for k, v in head_predictions.items()
+                    }
 
-        predictions = {k: v.mean(1) for k, v in head_predictions.items()}
-        metrics = (
-            dataset.task.calculate_metrics(predictions, report['prediction_type'])
-            if lib.are_valid_predictions(predictions)
-            else {x: {'score': lib.WORST_SCORE} for x in predictions}
-        )
+                    if dataset.task.is_binclass:
+                        n_predictions = {k: v[..., 1] for k, v in n_predictions.items()}
+
+                n_predictions = {k: v.mean(1) for k, v in n_predictions.items()}
+                predictions[str(n)] = n_predictions
+                metrics[str(n)] = (
+                    dataset.task.calculate_metrics(n_predictions, report['prediction_type'])
+                    if lib.are_valid_predictions(predictions)
+                    else {x: {'score': lib.WORST_SCORE} for x in predictions}
+                )
+        else:
+            if dataset.task.is_regression:
+                assert regression_label_stats is not None
+                head_predictions = {
+                    k: v * regression_label_stats.std + regression_label_stats.mean
+                    for k, v in head_predictions.items()
+                }
+            else:
+                head_predictions = {
+                    k: scipy.special.softmax(v, axis=-1)
+                    for k, v in head_predictions.items()
+                }
+                if dataset.task.is_binclass:
+                    head_predictions = {k: v[..., 1] for k, v in head_predictions.items()}
+
+
+            predictions = {k: v.mean(1) for k, v in head_predictions.items()}
+            metrics = (
+                dataset.task.calculate_metrics(predictions, report['prediction_type'])
+                if lib.are_valid_predictions(predictions)
+                else {x: {'score': lib.WORST_SCORE} for x in predictions}
+            )
         return metrics, predictions, head_predictions, eval_batch_size
 
     def save_checkpoint() -> None:
@@ -575,100 +619,115 @@ def main(
         lib.backup_output(output)
 
     print()
-    timer.run()
-    while config['n_epochs'] == -1 or step // epoch_size < config['n_epochs']:
-        print(f'[...] {lib.try_get_relative_path(output)} | {timer}')
+    if config.get('do_train', True):
+        timer.run()
+        while config['n_epochs'] == -1 or step // epoch_size < config['n_epochs']:
+            print(f'[...] {lib.try_get_relative_path(output)} | {timer}')
 
-        model.train()
-        epoch_losses = []
-        epoch_losses_kl = []
-        for batch_idx in tqdm(
-                torch.randperm(
-                    len(dataset.data['y']['train']),
-                    generator=batch_generator,
-                    device=device,
-                ).split(batch_size),
-                desc=f'Epoch {step // epoch_size} Step {step}',
-        ):
-            loss, kl_loss, new_chunk_size = lib.deep.zero_grad_forward_backward(
-                optimizer,
-                lambda idx: loss_fn(apply_model('train', idx), Y_train[idx]),
-                lambda: model.backbone.get_kl_loss() if hasattr(model.backbone, 'get_kl_loss') else torch.tensor(0.0).to(device),
-                batch_idx,
-                chunk_size or batch_size,
-                grad_scaler,
-            )
-
-            if parameter_statistics and (
-                    step % epoch_size == 0  # The first batch of the epoch.
-                    or step // epoch_size == 0  # The first epoch.
+            model.train()
+            epoch_losses = []
+            epoch_losses_kl = []
+            for batch_idx in tqdm(
+                    torch.randperm(
+                        len(dataset.data['y']['train']),
+                        generator=batch_generator,
+                        device=device,
+                    ).split(batch_size),
+                    desc=f'Epoch {step // epoch_size} Step {step}',
             ):
-                for k, v in lib.deep.compute_parameter_stats(model).items():
-                    writer.add_scalars(k, v, step, timer.elapsed())
-                    del k, v
-
-            if gradient_clipping_norm is not None:
-                if grad_scaler is not None:
-                    grad_scaler.unscale_(optimizer)
-                nn.utils.clip_grad.clip_grad_norm_(
-                    model.parameters(), gradient_clipping_norm
+                loss, kl_loss, new_chunk_size = lib.deep.zero_grad_forward_backward(
+                    optimizer,
+                    lambda idx: loss_fn(apply_model('train', idx), Y_train[idx]),
+                    lambda: model.backbone.get_kl_loss() if hasattr(model.backbone, 'get_kl_loss') else torch.tensor(
+                        0.0).to(device),
+                    batch_idx,
+                    chunk_size or batch_size,
+                    grad_scaler,
                 )
-            if grad_scaler is None:
-                optimizer.step()
-            else:
-                grad_scaler.step(optimizer)
-                grad_scaler.update()
 
-            step += 1
-            kl_loss = kl_loss.detach()
-            epoch_losses.append(loss.detach() - kl_loss)
-            epoch_losses_kl.append(kl_loss)
-            if new_chunk_size and new_chunk_size < (chunk_size or batch_size):
-                chunk_size = new_chunk_size
-                logger.warning(f'chunk_size = {chunk_size}')
+                if parameter_statistics and (
+                        step % epoch_size == 0  # The first batch of the epoch.
+                        or step // epoch_size == 0  # The first epoch.
+                ):
+                    for k, v in lib.deep.compute_parameter_stats(model).items():
+                        writer.add_scalars(k, v, step, timer.elapsed())
+                        del k, v
 
-        if hasattr(model.backbone, 'stat_alpha_sum'):
-            # print(
-            #     f"alphas after {step // epoch_size}: {model.backbone.stat_alpha_sum / dataset.size('train')}")
-            model.backbone.stat_alpha_sum = None
+                if gradient_clipping_norm is not None:
+                    if grad_scaler is not None:
+                        grad_scaler.unscale_(optimizer)
+                    nn.utils.clip_grad.clip_grad_norm_(
+                        model.parameters(), gradient_clipping_norm
+                    )
+                if grad_scaler is None:
+                    optimizer.step()
+                else:
+                    grad_scaler.step(optimizer)
+                    grad_scaler.update()
 
-        epoch_losses = torch.stack(epoch_losses).tolist()
-        mean_loss = statistics.mean(epoch_losses)
+                step += 1
+                kl_loss = kl_loss.detach()
+                epoch_losses.append(loss.detach() - kl_loss)
+                epoch_losses_kl.append(kl_loss)
+                if new_chunk_size and new_chunk_size < (chunk_size or batch_size):
+                    chunk_size = new_chunk_size
+                    logger.warning(f'chunk_size = {chunk_size}')
 
-        epoch_losses_kl = torch.stack(epoch_losses_kl).tolist()
-        mean_loss_kl = statistics.mean(epoch_losses_kl)
-        metrics, predictions, _, eval_batch_size = evaluate(
-            ['val', 'test'], eval_batch_size
-        )
+            if hasattr(model.backbone, 'stat_alpha_sum'):
+                # print(
+                #     f"alphas after {step // epoch_size}: {model.backbone.stat_alpha_sum / dataset.size('train')}")
+                model.backbone.stat_alpha_sum = None
 
-        training_log.append(
-            {'epoch-losses': epoch_losses, 'metrics': metrics, 'time': timer.elapsed()}
-        )
-        lib.print_metrics(mean_loss, mean_loss_kl, metrics)
+            epoch_losses = torch.stack(epoch_losses).tolist()
+            mean_loss = statistics.mean(epoch_losses)
 
-        writer.add_scalars('loss', {'train': mean_loss}, step, timer.elapsed())
-        writer.add_scalars('loss_kl', {'train': mean_loss_kl}, step, timer.elapsed())
-        for part in metrics:
-            writer.add_scalars(
-                'score', {part: metrics[part]['score']}, step, timer.elapsed()
+            epoch_losses_kl = torch.stack(epoch_losses_kl).tolist()
+            mean_loss_kl = statistics.mean(epoch_losses_kl)
+            metrics, predictions, _, eval_batch_size = evaluate(
+                ['val', 'test'], eval_batch_size
             )
 
-        if (
-                'metrics' not in report
-                or metrics['val']['score'] > report['metrics']['val']['score']
-        ):
-            print('🌸 New best epoch! 🌸')
-            report['best_step'] = step
-            report['metrics'] = metrics
-            save_checkpoint()
-            lib.dump_predictions(output, predictions)
+            training_log.append(
+                {'epoch-losses': epoch_losses, 'metrics': metrics, 'time': timer.elapsed()}
+            )
+            lib.print_metrics(mean_loss, mean_loss_kl, metrics)
 
-        early_stopping.update(metrics['val']['score'])
-        if early_stopping.should_stop() or not lib.are_valid_predictions(predictions):
-            break
+            writer.add_scalars('loss', {'train': mean_loss}, step, timer.elapsed())
+            writer.add_scalars('loss_kl', {'train': mean_loss_kl}, step, timer.elapsed())
+            for k in metrics:
+                if k not in ['train', 'val', 'test']: # it means bayesian ensemble
+                    for part in metrics[k]:
+                        writer.add_scalars(
+                            f'score, num_samples={k}', {part: metrics[k][part]['score']}, step, timer.elapsed()
+                        )
+                    max_samples = str(config['num_samples'])
+                    val_metric = metrics[max_samples]['val']['score']
+                    if 'metrics' in report:
+                        report_val_metric = report['metrics'][max_samples]['val']['score']
+                else:
+                    writer.add_scalars(
+                    'score', {k: metrics[k]['score']}, step, timer.elapsed()
+                    )
+                    val_metric = metrics['val']['score']
+                    if 'metrics' in report:
+                        report_val_metric = report['metrics']['val']['score']
+            if (
+                    'metrics' not in report
+                    or val_metric > report_val_metric
+            ):
+                print('🌸 New best epoch! 🌸')
+                report['best_step'] = step
+                report['metrics'] = metrics
+                save_checkpoint()
+                lib.dump_predictions(output, predictions)
 
-        print()
-    report['time'] = str(timer)
+            # early_stopping.update(metrics['val']['score'])
+            early_stopping.update(val_metric)
+            if early_stopping.should_stop() or not lib.are_valid_predictions(predictions):
+                break
+
+            print()
+        report['time'] = str(timer)
 
     # >>>
     if lib.get_checkpoint_path(output).exists():
@@ -691,6 +750,7 @@ def main(
             # outside of the project directory.
             and lib.env.get_project_dir() in output.parents
             and output.parent.name != 'trials'
+            and config.get('n_bayesian_ensembles', None) is None
     ):
         if output.parent.name.endswith('-evaluation'):
             best_head_output = (

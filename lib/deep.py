@@ -353,9 +353,7 @@ class BMoE(nn.Module):
             num_experts: int,
             gating_type: str,  # ['standard' or 'bayesian']
             kl_factor: int,
-            gating_prior_std: int,
-            num_samples: int = 10,
-            device: str = 'cuda',  # TODO: check whether is it necessary to pass
+            gating_prior_std: float,
     ) -> None:
         assert gating_type in ['standard', 'bayesian']
         super().__init__()
@@ -366,7 +364,6 @@ class BMoE(nn.Module):
         self.kl_factor = kl_factor
         self.num_experts = num_experts
         self.gating_type = gating_type
-        self.num_samples = num_samples
         print(f'gating type:{self.gating_type}')
         d_first = d_block // num_experts if d_in is None else d_in
 
@@ -379,16 +376,16 @@ class BMoE(nn.Module):
                 nn.Softmax(dim=-1)
             )
 
-            self.blocks = nn.ModuleList(
-                [
-                    nn.Sequential(
-                        nn.Linear(d_first if i == 0 else d_block // num_experts, d_block // num_experts),
-                        getattr(nn, activation)(),
-                        nn.Dropout(dropout)
-                    )
-                    for i in range(n_blocks)
-                ]
-            )
+            # Define blocks for standard gating
+            self.blocks = [
+                lambda in_features, out_features: nn.Sequential(
+                    nn.Linear(in_features, out_features),
+                    getattr(nn, activation)(),
+                    nn.Dropout(dropout)
+                )
+                for _ in range(n_blocks)
+            ]
+
         elif self.gating_type == 'bayesian':
             self.gate = BayesianGatingNetwork(
                 in_features=d_first,
@@ -397,32 +394,41 @@ class BMoE(nn.Module):
                 device=self.device,
             )
 
-            self.blocks = nn.ModuleList(
-                [
-                    nn.Sequential(
-                        nn.Linear(d_first if i == 0 else d_block // num_experts, d_block // num_experts),
-                        getattr(nn, activation)()
-                    )
-                    for i in range(n_blocks)
-                ]
-            )
+            # Define blocks for Bayesian gating
+            self.blocks = [
+                lambda in_features, out_features: nn.Sequential(
+                    nn.Linear(in_features, out_features),
+                    getattr(nn, activation)()
+                )
+                for _ in range(n_blocks)
+            ]
         else:
-            assert False, f'The gating type {self.gating_type} is not supported'
+            raise ValueError(f'The gating type "{self.gating_type}" is not supported.')
 
+        # Output layer
         self.output = None if d_out is None else nn.Linear(d_block // num_experts, d_out)
-        print(f'd_out:{d_out}')
-        print('output:')
-        print(self.output)
+        print(f'd_out: {d_out}')
+        print(f'Output layer: {self.output}')
+
+        # Create experts with independent weights
         self.experts = nn.ModuleList([
             nn.Sequential(
-                *(list(self.blocks) + ([self.output] if self.output is not None else []))
+                *[
+                    block(
+                        d_first if i == 0 else d_block // num_experts,
+                        d_block // num_experts
+                    )
+                    for i, block in enumerate(self.blocks)
+                ],
+                *([self.output] if self.output is not None else [])
             )
             for _ in range(num_experts)
         ])
+
         print(self.blocks)
         print(self.experts)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, num_samples: int = 10, return_average: bool = True) -> Tensor:
         """
         If self.training is True:
            - Sample one alpha from gate (as usual),
@@ -433,34 +439,32 @@ class BMoE(nn.Module):
            - Compute expert outputs once (they're standard),
            - Average the weighted sums over those 10 alpha samples.
         """
-        expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
 
+        expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
         if self.training:
             # 1) Compute gating weights
+            # Reset to a random seed
             alpha = self.gate(x)
-
             # 2) Store alpha stats if needed
             if self.stat_alpha_sum is None:
                 self.stat_alpha_sum = alpha.sum(axis=0).detach().cpu().numpy()
             else:
                 self.stat_alpha_sum += alpha.sum(axis=0).detach().cpu().numpy()
 
-            # 4) Weighted sum of expert outputs
+            # 3) Weighted sum of expert outputs
             #    alpha shape: [batch_size, num_experts]
             #    alpha.unsqueeze(-1) => [batch_size, num_experts, 1]
             #    multiply by expert_outputs => [batch_size, num_experts, output_dim]
-            output = torch.sum(alpha.unsqueeze(-1) * expert_outputs, dim=1)
 
+            output = torch.sum(alpha.unsqueeze(-1) * expert_outputs, dim=1)
         else:
             # EVAL MODE (Bayesian ensemble)
 
-            # 1) Compute expert outputs once
-            expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
-            # shape: [batch_size, num_experts, output_dim]
-
             # 2) Sample multiple (e.g., 10) gating distributions
             #    Each alpha_i has shape [batch_size, num_experts]
-            alphas = torch.stack([self.gate(x) for _ in range(self.num_samples)], dim=0)
+
+            alphas = torch.stack([self.gate(x) for _ in range(num_samples)], dim=0)
+            # alphas = torch.stack([self.gate(x) for _ in range(num_samples)], dim=0)
             # shape: [10, batch_size, num_experts]
 
             # 3) Compute the weighted outputs for each alpha
@@ -471,10 +475,16 @@ class BMoE(nn.Module):
 
             # 4) Sum over experts => [10, batch_size, output_dim]
             weighted_sums = torch.sum(weighted_expert_outputs, dim=2)
-
             # 5) Average across the 10 samples => [batch_size, output_dim]
-            output = weighted_sums.mean(dim=0)
-
+            if return_average:
+                output = weighted_sums.mean(dim=0)
+            else:
+                # print(f'check output shape:{weighted_sums.shape}')
+                output = weighted_sums
+                # print(f'alphas:{alphas.shape}')
+                # print('output 0:', output[:, 0, 0])
+                # print('alphas 0:', alphas[:, 0, 0])
+                # print('check output:', )
         return output
 
     def get_kl_loss(self):
@@ -563,7 +573,7 @@ class BMoIE(nn.Module):
             num_experts: int,
             gating_type: str,  # ['standard' or 'bayesian']
             kl_factor: int,
-            gating_prior_std: int,
+            gating_prior_std: float,
             device: str = 'cpu',  # TODO: check whether is it necessary to pass
     ) -> None:
         assert gating_type in ['standard', 'bayesian']

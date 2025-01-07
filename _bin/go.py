@@ -16,7 +16,7 @@ import lib
 
 
 def main(
-    path: str | Path,  # "a/b/c/0-tuning" OR "a/b/c/0-evaluation"
+    path: str | Path,  # "a/b/c/0-tuning" OR "a/b/c/0-bayesian-evaluation"
     function: None | str = None,
     n_seeds: int = _bin.evaluate.DEFAULT_N_SEEDS,
     n_ensembles: int = _bin.ensemble.DEFAULT_N_ENSEMBLES,

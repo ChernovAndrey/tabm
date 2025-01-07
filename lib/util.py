@@ -306,7 +306,7 @@ def dump_summary(output: str | Path, summary: JSONDict) -> None:
 
 
 def load_predictions(output: str | Path) -> dict[PartKey, np.ndarray]:
-    x = np.load(Path(output) / 'predictions.npz')
+    x = np.load(Path(output) / 'predictions.npz', allow_pickle=True)
     return {key: x[key] for key in x}
 
 
@@ -341,20 +341,45 @@ def print_config(config: dict) -> None:
     print()
 
 
+# def print_metrics(loss: float, kl_loss: float, metrics: dict) -> None:
+#     output = ""
+#
+#     if 'train' in metrics:
+#         output += f'(train) {metrics["train"]["score"]:.3f} '
+#
+#     output += (
+#         f'(val) {metrics["val"]["score"]:.3f} '
+#         f'(test) {metrics["test"]["score"]:.3f} '
+#         f'(loss) {loss:.5f} '
+#         f'(kl_loss) {kl_loss:.5f}'
+#     )
+#     print(output)
+
 def print_metrics(loss: float, kl_loss: float, metrics: dict) -> None:
     output = ""
-
+    # Add metrics for 'train', 'val', and 'test' if they exist
     if 'train' in metrics:
         output += f'(train) {metrics["train"]["score"]:.3f} '
 
-    output += (
-        f'(val) {metrics["val"]["score"]:.3f} '
-        f'(test) {metrics["test"]["score"]:.3f} '
-        f'(loss) {loss:.5f} '
-        f'(kl_loss) {kl_loss:.5f}'
-    )
+    if 'val' in metrics:
+        output += f'(val) {metrics["val"]["score"]:.3f} '
 
+    if 'test' in metrics:
+        output += f'(test) {metrics["test"]["score"]:.3f} '
+
+    # Add loss and kl_loss
+    output += f'(loss) {loss:.5f} (kl_loss) {kl_loss:.5f}'
+
+    # Print the final output
     print(output)
+
+    # Handle cases where metrics are a dict of dicts
+    for key, value in metrics.items():
+        if isinstance(value, dict):
+            print(f"Metrics for {key}:")
+            for sub_key, sub_value in value.items():
+                print(f"  {sub_key}: {sub_value}")
+
 
 def log_scores(metrics: dict) -> None:
     logger.debug(
@@ -428,11 +453,30 @@ def jsonify(value):
         return '<nonserializable>'
 
 
-def are_valid_predictions(predictions: dict) -> bool:
-    # predictions: dict[PartKey, np.ndarray]
-    assert all(isinstance(x, np.ndarray) for x in predictions.values())
-    return all(np.isfinite(x).all() for x in predictions.values())
+# def are_valid_predictions(predictions: dict) -> bool:
+#     # predictions: dict[PartKey, np.ndarray]
+#     assert all(isinstance(x, np.ndarray) for x in predictions.values())
+#     return all(np.isfinite(x).all() for x in predictions.values())
 
+def are_valid_predictions(predictions: dict) -> bool:
+    """
+    Check if all predictions in a nested dictionary of numpy arrays are valid.
+
+    Args:
+        predictions (dict): A dictionary that may contain numpy arrays or nested dictionaries.
+
+    Returns:
+        bool: True if all numpy arrays contain finite values, False otherwise.
+    """
+    def check_validity(preds):
+        if isinstance(preds, np.ndarray):
+            return np.isfinite(preds).all()
+        elif isinstance(preds, dict):
+            return all(check_validity(v) for v in preds.values())
+        return False  # Invalid type
+
+    assert isinstance(predictions, dict), "Predictions must be a dictionary."
+    return check_validity(predictions)
 
 def import_(qualname: str) -> Any:
     """

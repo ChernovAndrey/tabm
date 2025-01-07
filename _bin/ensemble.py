@@ -33,7 +33,7 @@ def main(
     """
     Examples:
 
-    >>> main('exp/mlp/california/0-evaluation')
+    >>> main('exp/mlp/california/0-bayesian-evaluation')
     <The result will be at 'exp/mlp/california/0-ensemble-{ensemble_size}'>
     """
 
