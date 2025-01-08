@@ -337,7 +337,15 @@ class MLP(nn.Module):
         return x
 
 
-import numpy as np
+def get_experts_block(in_features: int, out_features: int, num_experts: int, activation: str,
+                      dropout: None | bool, ) -> nn.ModuleList:
+    w = torch.zeros(num_experts, in_features, out_features)
+
+    w = init_rsqrt_uniform_(w, w.shape[-1])
+    out = nn.ModuleList([nn.Parameter(w), getattr(nn, activation)()])
+    if dropout is not None:
+        out.append(nn.Dropout(dropout))
+    return out
 
 
 class BMoE(nn.Module):
@@ -355,12 +363,13 @@ class BMoE(nn.Module):
             kl_factor: int,
             gating_prior_std: float,
     ) -> None:
+        assert d_out is not None, "the output layer must be added to the MoE"
         assert gating_type in ['standard', 'bayesian']
         super().__init__()
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print("Using device:", device)
         self.device = device
-
+        self.n_blocks = n_blocks
         self.kl_factor = kl_factor
         self.num_experts = num_experts
         self.gating_type = gating_type
@@ -370,21 +379,23 @@ class BMoE(nn.Module):
         self.stat_alpha_sum = None
         # Gating network
         self.gating_type = gating_type
+
+        self.Weights = nn.ParameterList()
+        for i in range(n_blocks + 1):  # one more for the output layer!
+            w = torch.zeros(num_experts, d_first if i == 0 else d_block // num_experts,
+                            d_out if i == n_blocks else d_block // num_experts)
+            w = init_rsqrt_uniform_(w, w.shape[-1])
+            self.Weights.append(nn.Parameter(w))
+
+        self.activation = getattr(nn, activation)()
+
+        self.dropout = nn.Dropout(dropout) if self.gating_type == 'standard' else None
+
         if self.gating_type == 'standard':
             self.gate = nn.Sequential(
                 nn.Linear(d_first, num_experts),
                 nn.Softmax(dim=-1)
             )
-
-            # Define blocks for standard gating
-            self.blocks = [
-                lambda in_features, out_features: nn.Sequential(
-                    nn.Linear(in_features, out_features),
-                    getattr(nn, activation)(),
-                    nn.Dropout(dropout)
-                )
-                for _ in range(n_blocks)
-            ]
 
         elif self.gating_type == 'bayesian':
             self.gate = BayesianGatingNetwork(
@@ -393,40 +404,8 @@ class BMoE(nn.Module):
                 prior_std=gating_prior_std,
                 device=self.device,
             )
-
-            # Define blocks for Bayesian gating
-            self.blocks = [
-                lambda in_features, out_features: nn.Sequential(
-                    nn.Linear(in_features, out_features),
-                    getattr(nn, activation)()
-                )
-                for _ in range(n_blocks)
-            ]
         else:
             raise ValueError(f'The gating type "{self.gating_type}" is not supported.')
-
-        # Output layer
-        self.output = None if d_out is None else nn.Linear(d_block // num_experts, d_out)
-        print(f'd_out: {d_out}')
-        print(f'Output layer: {self.output}')
-
-        # Create experts with independent weights
-        self.experts = nn.ModuleList([
-            nn.Sequential(
-                *[
-                    block(
-                        d_first if i == 0 else d_block // num_experts,
-                        d_block // num_experts
-                    )
-                    for i, block in enumerate(self.blocks)
-                ],
-                *([self.output] if self.output is not None else [])
-            )
-            for _ in range(num_experts)
-        ])
-
-        print(self.blocks)
-        print(self.experts)
 
     def forward(self, x: Tensor, num_samples: int = 10, return_average: bool = True) -> Tensor:
         """
@@ -440,11 +419,12 @@ class BMoE(nn.Module):
            - Average the weighted sums over those 10 alpha samples.
         """
 
-        expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
         if self.training:
+            alpha = self.gate(x).transpose(-2, -1)
+
             # 1) Compute gating weights
             # Reset to a random seed
-            alpha = self.gate(x)
+            # alpha = self.gate(x).transpose(-2, -1)
             # 2) Store alpha stats if needed
             if self.stat_alpha_sum is None:
                 self.stat_alpha_sum = alpha.sum(axis=0).detach().cpu().numpy()
@@ -452,18 +432,25 @@ class BMoE(nn.Module):
                 self.stat_alpha_sum += alpha.sum(axis=0).detach().cpu().numpy()
 
             # 3) Weighted sum of expert outputs
-            #    alpha shape: [batch_size, num_experts]
-            #    alpha.unsqueeze(-1) => [batch_size, num_experts, 1]
-            #    multiply by expert_outputs => [batch_size, num_experts, output_dim]
+            #    alpha shape: [num_experts, batch_size]
+            #    alpha.unsqueeze(-1) => [num_experts, batch_size, 1]
+            #    multiply by x => [num_experts, batch_size, output_dim]
 
-            output = torch.sum(alpha.unsqueeze(-1) * expert_outputs, dim=1)
+            output = torch.sum(alpha.unsqueeze(-1) * x, dim=0)
         else:
             # EVAL MODE (Bayesian ensemble)
 
             # 2) Sample multiple (e.g., 10) gating distributions
             #    Each alpha_i has shape [batch_size, num_experts]
 
-            alphas = torch.stack([self.gate(x) for _ in range(num_samples)], dim=0)
+            alphas = torch.stack([self.gate(x) for _ in range(num_samples)], dim=0).permute(0, 2, 1)
+
+            for i in range(self.n_blocks + 1):
+                x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])
+                if i < self.n_blocks:
+                    x = self.activation(x)
+                    if self.dropout is not None:
+                        x = self.dropout(x)
             # alphas = torch.stack([self.gate(x) for _ in range(num_samples)], dim=0)
             # shape: [10, batch_size, num_experts]
 
@@ -471,7 +458,7 @@ class BMoE(nn.Module):
             #    Expand alphas => [10, batch_size, num_experts, 1]
             #    Expand expert_outputs => [1, batch_size, num_experts, output_dim]
             #    => multiplied => [10, batch_size, num_experts, output_dim]
-            weighted_expert_outputs = alphas.unsqueeze(-1) * expert_outputs.unsqueeze(0)
+            weighted_expert_outputs = alphas.unsqueeze(-1) * x.unsqueeze(0)
 
             # 4) Sum over experts => [10, batch_size, output_dim]
             weighted_sums = torch.sum(weighted_expert_outputs, dim=2)
