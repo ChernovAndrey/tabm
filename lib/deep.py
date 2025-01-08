@@ -426,10 +426,11 @@ class BMoE(nn.Module):
             # Reset to a random seed
             # alpha = self.gate(x).transpose(-2, -1)
             # 2) Store alpha stats if needed
-            if self.stat_alpha_sum is None:
-                self.stat_alpha_sum = alpha.sum(axis=0).detach().cpu().numpy()
-            else:
-                self.stat_alpha_sum += alpha.sum(axis=0).detach().cpu().numpy()
+
+            # if self.stat_alpha_sum is None:
+            #     self.stat_alpha_sum = alpha.sum(axis=0).detach().cpu().numpy()
+            # else:
+            #     self.stat_alpha_sum += alpha.sum(axis=0).detach().cpu().numpy()
 
             # 3) Weighted sum of expert outputs
             #    alpha shape: [num_experts, batch_size]
@@ -455,13 +456,13 @@ class BMoE(nn.Module):
             # shape: [10, batch_size, num_experts]
 
             # 3) Compute the weighted outputs for each alpha
-            #    Expand alphas => [10, batch_size, num_experts, 1]
-            #    Expand expert_outputs => [1, batch_size, num_experts, output_dim]
-            #    => multiplied => [10, batch_size, num_experts, output_dim]
+            #    Expand alphas => [10, num_experts, batch_size, 1]
+            #    Expand expert_outputs => [1, num_experts, batch_size, output_dim]
+            #    => multiplied => [10, num_experts, batch_size, output_dim]
             weighted_expert_outputs = alphas.unsqueeze(-1) * x.unsqueeze(0)
 
             # 4) Sum over experts => [10, batch_size, output_dim]
-            weighted_sums = torch.sum(weighted_expert_outputs, dim=2)
+            weighted_sums = torch.sum(weighted_expert_outputs, dim=1)
             # 5) Average across the 10 samples => [batch_size, output_dim]
             if return_average:
                 output = weighted_sums.mean(dim=0)
