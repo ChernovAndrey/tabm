@@ -419,9 +419,16 @@ class BMoE(nn.Module):
            - Average the weighted sums over those 10 alpha samples.
         """
 
-        if self.training:
-            alpha = self.gate(x).transpose(-2, -1)
+        # if self.training:
+        if True:
+            alpha = self.gate(x).transpose(-1, -2)  # [batch_size, num_experts] -> [num_experts, batch_size]
 
+            for i in range(self.n_blocks + 1):
+                x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])
+                if i < self.n_blocks:
+                    x = self.activation(x)
+                    if self.dropout is not None:
+                        x = self.dropout(x)
             # 1) Compute gating weights
             # Reset to a random seed
             # alpha = self.gate(x).transpose(-2, -1)
