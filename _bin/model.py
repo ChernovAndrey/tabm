@@ -750,8 +750,9 @@ def main(
             # outside of the project directory.
             and lib.env.get_project_dir() in output.parents
             and output.parent.name != 'trials'
-            and config.get('n_bayesian_ensembles', None) is None
+            # and config.get('n_bayesian_ensembles', None) is None
     ):
+        print('hello! You should not be here')
         if output.parent.name.endswith('-evaluation'):
             best_head_output = (
                     output.parent.with_name(
