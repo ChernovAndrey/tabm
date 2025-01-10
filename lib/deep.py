@@ -424,7 +424,7 @@ class BMoE(nn.Module):
                                                           -2)  # [batch_size, num_experts] -> [num_experts, batch_size]
         else:
             # [num_samples, batch_size, num_experts] -> [num_samples, num_experts, batch_size]
-            alpha = self.gate(x, num_samples=num_samples, return_average=return_average).permute(0, 2, 1)
+            alpha = self.gate(x, num_samples=num_samples).permute(0, 2, 1)
 
         for i in range(self.n_blocks + 1):
             x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])
