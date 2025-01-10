@@ -33,15 +33,62 @@ class BayesianLinear(nn.Module):
         self.prior_weight = Normal(torch.zeros_like(self.weight_mu), prior_std * torch.ones_like(self.weight_mu))
         self.prior_bias = Normal(torch.zeros_like(self.bias_mu), prior_std * torch.ones_like(self.bias_mu))
 
-    def forward(self, x):
-        # Reparameterization trick to sample weights and biases
-        weight_std = torch.exp(0.5 * self.weight_logvar)
-        bias_std = torch.exp(0.5 * self.bias_logvar)
-        weight = self.weight_mu + weight_std * torch.randn_like(self.weight_mu)
-        bias = self.bias_mu + bias_std * torch.randn_like(self.bias_mu)
+    # def forward(self, x):
+    #     # Reparameterization trick to sample weights and biases
+    #     weight_std = torch.exp(0.5 * self.weight_logvar)
+    #     bias_std = torch.exp(0.5 * self.bias_logvar)
+    #     weight = self.weight_mu + weight_std * torch.randn_like(self.weight_mu)
+    #     bias = self.bias_mu + bias_std * torch.randn_like(self.bias_mu)
+    #
+    #     # Linear transformation
+    #     return torch.addmm(bias, x, weight.t())
+    def forward(self, x: torch.Tensor, num_samples: int, return_average: bool = False) -> torch.Tensor:
+        """
 
-        # Linear transformation
-        return torch.addmm(bias, x, weight.t())
+        Args:
+            x (torch.Tensor): inout tensor
+            num_samples (int): when num_samples = 0, it means that we take MAP estimation
+            return_average (bool): whether to return mean or all samples
+
+       Output:
+            [B, out_dim] - when num_samples <= 1 or return_average=True
+            [N, B, out_dim] - otherwise
+
+        """
+        if num_samples == 1:
+            weight_std = torch.exp(0.5 * self.weight_logvar)
+            bias_std = torch.exp(0.5 * self.bias_logvar)
+            weight = self.weight_mu + weight_std * torch.randn_like(self.weight_mu)
+            bias = self.bias_mu + bias_std * torch.randn_like(self.bias_mu)
+
+            return torch.addmm(bias, x, weight.t())
+
+        elif num_samples == 0:  # e.g MAP estimation
+            return torch.addmm(self.bias_mu, x, self.weight_mu.t())
+
+        weight_std = torch.exp(0.5 * self.weight_logvar).unsqueeze(0)
+        bias_std = torch.exp(0.5 * self.bias_logvar).unsqueeze(0)
+
+        weight_samples = self.weight_mu.unsqueeze(0) + weight_std * torch.randn(num_samples, *self.weight_mu.shape)
+
+        # [samples, out_dim]
+        bias_samples = self.bias_mu.unsqueeze(0) + bias_std * torch.randn(num_samples, *self.bias_mu.shape)
+
+        # TODO: measure which approach (einsum or bmm) performs better
+        # outputs = torch.einsum('noi,bi->nbo', weight_samples, x) + bias_samples.unsqueeze(1)
+
+        # Make x into shape [N, B, in_dim]
+        x_expanded = x.unsqueeze(0).expand(num_samples, -1, -1)  # [N, B, in_dim]
+
+        # For matrix multiplication, we want [N, B, out_dim].
+        # But weight_samples is [N, out_dim, in_dim], so we transpose last two dims:
+        weight_t = weight_samples.transpose(1, 2)  # [N, in_dim, out_dim]
+
+        outputs = torch.bmm(x_expanded, weight_t) + bias_samples.unsqueeze(1)  # [N, B, out_dim]
+        if return_average:
+            outputs = outputs.mean(dim=0)
+
+        return outputs
 
     # def kl_divergence(self):
     def kl_loss(self):

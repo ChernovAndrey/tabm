@@ -418,67 +418,35 @@ class BMoE(nn.Module):
            - Compute expert outputs once (they're standard),
            - Average the weighted sums over those 10 alpha samples.
         """
+        # TODO: improve code clarity
+        if self.training or num_samples < 2:
+            alpha = self.gate(x, num_samples=1).transpose(-1,
+                                                          -2)  # [batch_size, num_experts] -> [num_experts, batch_size]
+        else:
+            # [num_samples, batch_size, num_experts] -> [num_samples, num_experts, batch_size]
+            alpha = self.gate(x, num_samples=num_samples, return_average=return_average).permute(0, 2, 1)
 
-        if self.training:
-            alpha = self.gate(x).transpose(-1, -2)  # [batch_size, num_experts] -> [num_experts, batch_size]
+        for i in range(self.n_blocks + 1):
+            x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])
+            if i < self.n_blocks:
+                x = self.activation(x)
+                if self.dropout is not None:
+                    x = self.dropout(x)
 
-            for i in range(self.n_blocks + 1):
-                x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])
-                if i < self.n_blocks:
-                    x = self.activation(x)
-                    if self.dropout is not None:
-                        x = self.dropout(x)
-            # 1) Compute gating weights
-            # Reset to a random seed
-            # alpha = self.gate(x).transpose(-2, -1)
-            # 2) Store alpha stats if needed
-
-            # if self.stat_alpha_sum is None:
-            #     self.stat_alpha_sum = alpha.sum(axis=0).detach().cpu().numpy()
-            # else:
-            #     self.stat_alpha_sum += alpha.sum(axis=0).detach().cpu().numpy()
-
-            # 3) Weighted sum of expert outputs
-            #    alpha shape: [num_experts, batch_size]
-            #    alpha.unsqueeze(-1) => [num_experts, batch_size, 1]
-            #    multiply by x => [num_experts, batch_size, output_dim]
-
+        if self.training or num_samples < 2:
             output = torch.sum(alpha.unsqueeze(-1) * x, dim=0)
         else:
             # EVAL MODE (Bayesian ensemble)
-
-            # [num_samples, num_experts, batch_size]
-            alphas = torch.stack([self.gate(x) for _ in range(num_samples)], dim=0).permute(0, 2, 1)
-
-            for i in range(self.n_blocks + 1):
-                x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])
-                if i < self.n_blocks:
-                    x = self.activation(x)
-                    if self.dropout is not None:
-                        x = self.dropout(x)
-            # alphas = torch.stack([self.gate(x) for _ in range(num_samples)], dim=0)
-            # shape: [10, batch_size, num_experts]
-
-            # 3) Compute the weighted outputs for each alpha
-            #    Expand alphas => [10, num_experts, batch_size, 1]
-            #    Expand expert_outputs => [1, num_experts, batch_size, output_dim]
-            #    => multiplied => [10, num_experts, batch_size, output_dim]
-
-            weighted_expert_outputs = alphas.unsqueeze(-1) * x.unsqueeze(0)
+            weighted_expert_outputs = alpha.unsqueeze(-1) * x.unsqueeze(0)
 
             # 4) Sum over experts => [10, batch_size, output_dim]
             weighted_sums = torch.sum(weighted_expert_outputs, dim=1)
 
-            #[ num_samples, batch_size, output_dim]
+            # [ num_samples, batch_size, output_dim]
             if return_average:
                 output = weighted_sums.mean(dim=0)
             else:
-                # print(f'check output shape:{weighted_sums.shape}')
                 output = weighted_sums
-                # print(f'alphas:{alphas.shape}')
-                # print('output 0:', output[:, 0, 0])
-                # print('alphas 0:', alphas[:, 0, 0])
-                # print('check output:', )
         return output
 
     def get_kl_loss(self):
