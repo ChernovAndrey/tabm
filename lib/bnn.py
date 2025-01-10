@@ -42,7 +42,7 @@ class BayesianLinear(nn.Module):
     #
     #     # Linear transformation
     #     return torch.addmm(bias, x, weight.t())
-    def forward(self, x: torch.Tensor, num_samples: int, return_average: bool = False) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, num_samples: int) -> torch.Tensor:
         """
 
         Args:
@@ -85,8 +85,9 @@ class BayesianLinear(nn.Module):
         weight_t = weight_samples.transpose(1, 2)  # [N, in_dim, out_dim]
 
         outputs = torch.bmm(x_expanded, weight_t) + bias_samples.unsqueeze(1)  # [N, B, out_dim]
-        if return_average:
-            outputs = outputs.mean(dim=0)
+
+        # if return_average:
+        #     outputs = outputs.mean(dim=0)
 
         return outputs
 
