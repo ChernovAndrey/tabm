@@ -407,7 +407,7 @@ class BMoE(nn.Module):
         else:
             raise ValueError(f'The gating type "{self.gating_type}" is not supported.')
 
-    def forward(self, x: Tensor, num_samples: int = 10, return_average: bool = True) -> Tensor:
+    def forward(self, x: Tensor, num_samples: int = 0, return_average: bool = True) -> Tensor:
         """
         If self.training is True:
            - Sample one alpha from gate (as usual),
