@@ -419,8 +419,7 @@ class BMoE(nn.Module):
            - Average the weighted sums over those 10 alpha samples.
         """
 
-        # if self.training:
-        if True:
+        if self.training:
             alpha = self.gate(x).transpose(-1, -2)  # [batch_size, num_experts] -> [num_experts, batch_size]
 
             for i in range(self.n_blocks + 1):
@@ -448,9 +447,7 @@ class BMoE(nn.Module):
         else:
             # EVAL MODE (Bayesian ensemble)
 
-            # 2) Sample multiple (e.g., 10) gating distributions
-            #    Each alpha_i has shape [batch_size, num_experts]
-
+            # [num_samples, num_experts, batch_size]
             alphas = torch.stack([self.gate(x) for _ in range(num_samples)], dim=0).permute(0, 2, 1)
 
             for i in range(self.n_blocks + 1):
@@ -466,11 +463,13 @@ class BMoE(nn.Module):
             #    Expand alphas => [10, num_experts, batch_size, 1]
             #    Expand expert_outputs => [1, num_experts, batch_size, output_dim]
             #    => multiplied => [10, num_experts, batch_size, output_dim]
+
             weighted_expert_outputs = alphas.unsqueeze(-1) * x.unsqueeze(0)
 
             # 4) Sum over experts => [10, batch_size, output_dim]
             weighted_sums = torch.sum(weighted_expert_outputs, dim=1)
-            # 5) Average across the 10 samples => [batch_size, output_dim]
+
+            #[ num_samples, batch_size, output_dim]
             if return_average:
                 output = weighted_sums.mean(dim=0)
             else:

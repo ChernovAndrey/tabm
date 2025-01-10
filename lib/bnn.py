@@ -12,11 +12,23 @@ class BayesianLinear(nn.Module):
         self.out_features = out_features
         self.device = device
         # Variational parameters for posterior
-        self.weight_mu = nn.Parameter(torch.zeros(out_features, in_features)).to(self.device)
-        self.weight_logvar = nn.Parameter(torch.zeros(out_features, in_features)).to(self.device)
-        self.bias_mu = nn.Parameter(torch.zeros(out_features)).to(self.device)
-        self.bias_logvar = nn.Parameter(torch.zeros(out_features)).to(self.device)
 
+        # Initialize weight_mu and weight_logvar
+        self.weight_mu = nn.Parameter(torch.empty(out_features, in_features, device=self.device))
+        self.weight_logvar = nn.Parameter(torch.empty(out_features, in_features, device=self.device))
+
+        # Initialize bias_mu and bias_logvar
+        self.bias_mu = nn.Parameter(torch.empty(out_features, device=self.device))
+        self.bias_logvar = nn.Parameter(torch.empty(out_features, device=self.device))
+
+        # Apply Kaiming Normal initialization for weight_mu and bias_mu
+        nn.init.kaiming_normal_(self.weight_mu, mode='fan_in')
+        nn.init.kaiming_normal_(self.bias_mu, mode='fan_in')
+
+        # Initialize weight_logvar and bias_logvar with small constant values (e.g., -10)
+        # This ensures initial uncertainty is small
+        nn.init.constant_(self.weight_logvar, 4.605)
+        nn.init.constant_(self.bias_logvar, -4.605)
         # Prior distributions
         self.prior_weight = Normal(torch.zeros_like(self.weight_mu), prior_std * torch.ones_like(self.weight_mu))
         self.prior_bias = Normal(torch.zeros_like(self.bias_mu), prior_std * torch.ones_like(self.bias_mu))
