@@ -114,8 +114,8 @@ class BayesianGatingNetwork(nn.Module):
         super().__init__()
         self.blin = BayesianLinear(in_features, num_experts, prior_std=prior_std, device=device)
 
-    def forward(self, x):
-        logits = self.blin(x)  # shape: (batch, num_experts)
+    def forward(self, x, num_samples: int, return_average: bool = False):
+        logits = self.blin(x, num_samples, return_average)  # shape: (batch, num_experts)
         alpha = torch.softmax(logits, dim=1)  # gating coefficients
         return alpha
 
