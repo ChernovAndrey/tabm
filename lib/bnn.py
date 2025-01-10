@@ -23,7 +23,7 @@ class BayesianLinear(nn.Module):
 
         # Apply Kaiming Normal initialization for weight_mu and bias_mu
         nn.init.kaiming_normal_(self.weight_mu, mode='fan_in')
-        nn.init.kaiming_normal_(self.bias_mu, mode='fan_in')
+        nn.init.constant_(self.bias_mu, 0.0)
 
         # Initialize weight_logvar and bias_logvar with small constant values (e.g., -10)
         # This ensures initial uncertainty is small
