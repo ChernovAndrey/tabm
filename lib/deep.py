@@ -419,9 +419,12 @@ class BMoE(nn.Module):
            - Average the weighted sums over those 10 alpha samples.
         """
         # TODO: improve code clarity
-        if self.training or num_samples < 2:
-            alpha = self.gate(x, num_samples=1).transpose(-1,
-                                                          -2)  # [batch_size, num_experts] -> [num_experts, batch_size]
+        if self.training or num_samples < 2 or self.gating_type == 'standard':
+
+            # [batch_size, num_experts] -> [num_experts, batch_size]
+            alpha = self.gate(x, num_samples=1) if self.gating_type == 'bayesian' \
+                else self.gate(x, num_samples=1)
+            alpha = alpha.transpose(-1, -2)
         else:
             # [num_samples, batch_size, num_experts] -> [num_samples, num_experts, batch_size]
             alpha = self.gate(x, num_samples=num_samples).permute(0, 2, 1)
@@ -433,7 +436,7 @@ class BMoE(nn.Module):
                 if self.dropout is not None:
                     x = self.dropout(x)
 
-        if self.training or num_samples < 2:
+        if self.training or num_samples < 2 or self.gating_type == 'standard':
             output = torch.sum(alpha.unsqueeze(-1) * x, dim=0)
         else:
             # EVAL MODE (Bayesian ensemble)
