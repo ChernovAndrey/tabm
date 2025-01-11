@@ -22,8 +22,8 @@ class BayesianLinear(nn.Module):
         self.bias_mu = nn.Parameter(torch.empty(out_features, device=self.device))
         self.bias_logvar = nn.Parameter(torch.empty(out_features, device=self.device))
 
-        init_rsqrt_uniform_(self.weight_mu, self.weight_mu.shape[-1])
-        # nn.init.constant_(self.weight_mu, 0.0)
+        # init_rsqrt_uniform_(self.weight_mu, self.weight_mu.shape[-1])
+        nn.init.constant_(self.weight_mu, 0.0)
         nn.init.constant_(self.bias_mu, 0.0)
 
         # Initialize weight_logvar and bias_logvar with small constant values (e.g., -10)
