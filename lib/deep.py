@@ -421,7 +421,6 @@ class BMoE(nn.Module):
         # print(f'num samples:{num_samples}')
         # TODO: improve code clarity
         if self.training or num_samples < 2 or self.gating_type == 'standard':
-
             # [batch_size, num_experts] -> [num_experts, batch_size]
             alpha = self.gate(x, num_samples=1) if self.gating_type == 'bayesian' \
                 else self.gate(x)

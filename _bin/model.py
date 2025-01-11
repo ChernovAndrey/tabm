@@ -489,38 +489,6 @@ def main(
         for part in parts:
             while eval_batch_size:
                 try:
-                    # head_predictions[part] = (
-                    #     torch.cat(
-                    #         [
-                    #             apply_model(part, idx)
-                    #             for idx in torch.arange(
-                    #             dataset.size(part), device=device
-                    #         ).split(eval_batch_size)
-                    #         ]
-                    #     )
-                    #     .cpu()
-                    #     .numpy()
-                    # )
-                    # pred = (
-                    #     torch.cat(
-                    #         [
-                    #             # Perform num_samples predictions for every point
-                    #             torch.stack(
-                    #                 [
-                    #                     apply_model(part, idx)  # Predict for the current batch
-                    #                     for _ in range(5)  # Repeat num_samples times
-                    #                 ],
-                    #                 dim=0,  # Stack predictions along a new dimension
-                    #             )
-                    #             for idx in torch.arange(
-                    #             dataset.size(part), device=device
-                    #         ).split(eval_batch_size)  # Split dataset into manageable chunks
-                    #         ]
-                    #     )
-                    #     .cpu()
-                    # )
-                    # head_predictions[part] = pred.numpy().mean(axis=0)
-
                     head_predictions[part] = (
                         torch.cat(
                             [
@@ -568,8 +536,8 @@ def main(
                 predictions[str(n)] = n_predictions
                 metrics[str(n)] = (
                     dataset.task.calculate_metrics(n_predictions, report['prediction_type'])
-                    # if lib.are_valid_predictions(predictions)
-                    # else {x: {'score': lib.WORST_SCORE} for x in predictions}
+                    if lib.are_valid_predictions(predictions)
+                    else {x: {'score': lib.WORST_SCORE} for x in predictions}
                 )
         else:
             if dataset.task.is_regression:
