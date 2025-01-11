@@ -423,7 +423,7 @@ class BMoE(nn.Module):
 
             # [batch_size, num_experts] -> [num_experts, batch_size]
             alpha = self.gate(x, num_samples=1) if self.gating_type == 'bayesian' \
-                else self.gate(x, num_samples=1)
+                else self.gate(x)
             alpha = alpha.transpose(-1, -2)
         else:
             # [num_samples, batch_size, num_experts] -> [num_samples, num_experts, batch_size]
