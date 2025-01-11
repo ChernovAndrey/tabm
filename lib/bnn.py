@@ -2,6 +2,7 @@ from torch import nn
 import torch
 
 from torch.distributions import Normal
+from .util import init_rsqrt_uniform_
 
 
 # Bayesian Linear Layer
@@ -21,14 +22,14 @@ class BayesianLinear(nn.Module):
         self.bias_mu = nn.Parameter(torch.empty(out_features, device=self.device))
         self.bias_logvar = nn.Parameter(torch.empty(out_features, device=self.device))
 
-        # Apply Kaiming Normal initialization for weight_mu and bias_mu
-        nn.init.kaiming_normal_(self.weight_mu, mode='fan_in')
+        init_rsqrt_uniform_(self.weight_mu, self.weight_mu.shape[-1])
+        # nn.init.constant_(self.weight_mu, 0.0)
         nn.init.constant_(self.bias_mu, 0.0)
 
         # Initialize weight_logvar and bias_logvar with small constant values (e.g., -10)
         # This ensures initial uncertainty is small
-        nn.init.constant_(self.weight_logvar, 4.605)
-        nn.init.constant_(self.bias_logvar, -4.605)
+        nn.init.constant_(self.weight_logvar, 0.0)  # -4.605 is equal to std=0.1; 0 is equal to std=1.0
+        nn.init.constant_(self.bias_logvar, 0.0)
         # Prior distributions
         self.prior_weight = Normal(torch.zeros_like(self.weight_mu), prior_std * torch.ones_like(self.weight_mu))
         self.prior_bias = Normal(torch.zeros_like(self.bias_mu), prior_std * torch.ones_like(self.bias_mu))

@@ -24,6 +24,8 @@ from loguru import logger
 # because all other submodules are allowed to import `util`.
 from . import env
 
+from torch import Tensor
+from torch import nn
 # The purpose of the following snippet is to optimize import times
 # when slow-to-import modules are not needed.
 _TORCH = None
@@ -567,3 +569,9 @@ def backup_output(output: Path) -> None:
         nirvana_dl.snapshot.dump_snapshot()
         _LAST_SNAPSHOT_TIME = time.time()
         print('The snapshot was saved!')
+
+
+def init_rsqrt_uniform_(x: Tensor, d: int) -> Tensor:
+    assert d > 0
+    d_rsqrt = d ** -0.5
+    return nn.init.uniform_(x, -d_rsqrt, d_rsqrt)

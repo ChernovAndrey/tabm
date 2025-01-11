@@ -11,17 +11,13 @@ import torch.nn.functional as F
 from torch import Tensor
 from torch.nn import Parameter
 
-from .util import is_oom_exception
+from .util import is_oom_exception, init_rsqrt_uniform_
 from .bnn import BayesianGatingNetwork
 
 
 # ======================================================================================
 # Initialization
 # ======================================================================================
-def init_rsqrt_uniform_(x: Tensor, d: int) -> Tensor:
-    assert d > 0
-    d_rsqrt = d ** -0.5
-    return nn.init.uniform_(x, -d_rsqrt, d_rsqrt)
 
 
 @torch.inference_mode()
