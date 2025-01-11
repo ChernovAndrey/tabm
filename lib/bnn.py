@@ -116,8 +116,8 @@ class BayesianGatingNetwork(nn.Module):
         self.blin = BayesianLinear(in_features, num_experts, prior_std=prior_std, device=device)
 
     def forward(self, x, num_samples: int):
-        logits = self.blin(x, num_samples)  # shape: (batch, num_experts)
-        alpha = torch.softmax(logits, dim=1)  # gating coefficients
+        logits = self.blin(x, num_samples)  # shape: (batch, num_experts) or (num_samples, batch, num_experts)
+        alpha = torch.softmax(logits, dim=-1)  # gating coefficients
         return alpha
 
     def kl_loss(self):

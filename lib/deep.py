@@ -418,6 +418,7 @@ class BMoE(nn.Module):
            - Compute expert outputs once (they're standard),
            - Average the weighted sums over those 10 alpha samples.
         """
+        # print(f'num samples:{num_samples}')
         # TODO: improve code clarity
         if self.training or num_samples < 2 or self.gating_type == 'standard':
 

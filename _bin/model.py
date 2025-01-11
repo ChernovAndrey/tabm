@@ -480,14 +480,12 @@ def main(
 
     @evaluation_mode()
     def evaluate(
-            parts: list[PartKey], eval_batch_size: int
+            parts: list[PartKey], eval_batch_size: int, return_average: bool = True, num_samples: int = 0
     ) -> tuple[
         dict[PartKey, Any], dict[PartKey, np.ndarray], dict[PartKey, np.ndarray], int
     ]:
         model.eval()
         head_predictions: dict[PartKey, np.ndarray] = {}
-        num_samples = config.get('num_samples', None)
-        return_average = config.get('return_average', None)
         for part in parts:
             while eval_batch_size:
                 try:
@@ -546,10 +544,10 @@ def main(
             if not eval_batch_size:
                 RuntimeError('Not enough memory even for eval_batch_size=1')
         # print(f"head prediction shape: {head_predictions['test'].shape}")
-        n_bayesian_ensembles = config.get('n_bayesian_ensembles', None)
-        if n_bayesian_ensembles:
+        if not return_average:
             metrics = {}
             predictions = {}
+            n_bayesian_ensembles = config.get('n_bayesian_ensembles', None)
             for n in n_bayesian_ensembles:
                 if dataset.task.is_regression:
                     assert regression_label_stats is not None
@@ -570,8 +568,8 @@ def main(
                 predictions[str(n)] = n_predictions
                 metrics[str(n)] = (
                     dataset.task.calculate_metrics(n_predictions, report['prediction_type'])
-                    if lib.are_valid_predictions(predictions)
-                    else {x: {'score': lib.WORST_SCORE} for x in predictions}
+                    # if lib.are_valid_predictions(predictions)
+                    # else {x: {'score': lib.WORST_SCORE} for x in predictions}
                 )
         else:
             if dataset.task.is_regression:
@@ -587,7 +585,6 @@ def main(
                 }
                 if dataset.task.is_binclass:
                     head_predictions = {k: v[..., 1] for k, v in head_predictions.items()}
-
 
             predictions = {k: v.mean(1) for k, v in head_predictions.items()}
             metrics = (
@@ -695,18 +692,19 @@ def main(
             writer.add_scalars('loss', {'train': mean_loss}, step, timer.elapsed())
             writer.add_scalars('loss_kl', {'train': mean_loss_kl}, step, timer.elapsed())
             for k in metrics:
-                if k not in ['train', 'val', 'test']: # it means bayesian ensemble
+                if k not in ['train', 'val', 'test']:  # it means bayesian ensemble
                     for part in metrics[k]:
                         writer.add_scalars(
                             f'score, num_samples={k}', {part: metrics[k][part]['score']}, step, timer.elapsed()
                         )
                     max_samples = str(config['num_samples'])
+                    print(metrics[max_samples])
                     val_metric = metrics[max_samples]['val']['score']
                     if 'metrics' in report:
                         report_val_metric = report['metrics'][max_samples]['val']['score']
                 else:
                     writer.add_scalars(
-                    'score', {k: metrics[k]['score']}, step, timer.elapsed()
+                        'score', {k: metrics[k]['score']}, step, timer.elapsed()
                     )
                     val_metric = metrics['val']['score']
                     if 'metrics' in report:
@@ -735,6 +733,8 @@ def main(
     report['metrics'], predictions, head_predictions, _ = evaluate(
         ['train', 'val', 'test'], eval_batch_size
     )
+    print('check')
+    print(report['metrics'])
     report['chunk_size'] = chunk_size
     report['eval_batch_size'] = eval_batch_size
     lib.dump_predictions(output, predictions)
@@ -750,9 +750,8 @@ def main(
             # outside of the project directory.
             and lib.env.get_project_dir() in output.parents
             and output.parent.name != 'trials'
-            # and config.get('n_bayesian_ensembles', None) is None
+            and config.get('n_bayesian_ensembles', None) is None
     ):
-        print('hello! You should not be here')
         if output.parent.name.endswith('-evaluation'):
             best_head_output = (
                     output.parent.with_name(
@@ -863,6 +862,22 @@ def main(
         )
 
     lib.finish(output, report)
+
+    if config.get('n_bayesian_ensembles', None) is not None: # do bayesian ensemble with the best model
+        report_bayes = report.copy()
+        max_samples = config['num_samples']
+        report_bayes['metrics'], predictions, head_predictions, _ = evaluate(
+            ['train', 'val', 'test'], eval_batch_size, num_samples=max_samples, return_average=False
+        )
+        # report_bayes['metrics'], predictions, head_predictions, _ = evaluate(
+        #     ['train', 'val', 'test'], eval_batch_size
+        # )
+
+        # report['chunk_size'] = chunk_size
+        # report['eval_batch_size'] = eval_batch_size
+
+        lib.dump_predictions(output, predictions, bayes_ensemble=True)
+        lib.dump_report(output, report_bayes, bayes_ensemble=True)
     return report
 
 

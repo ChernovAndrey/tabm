@@ -96,7 +96,7 @@ T = TypeVar('T')
 
 
 def check(
-    config, output: None | str | Path, *, config_type: type[T] = dict
+        config, output: None | str | Path, *, config_type: type[T] = dict
 ) -> tuple[T, Path]:
     """Load the config and infer the path to the output directory."""
     # >>> This is a snippet for the internal infrastructure, ignore it.
@@ -119,7 +119,7 @@ def check(
     else:
         # config is already a dictionary.
         assert (
-            output is not None
+                output is not None
         ), 'If config is a dictionary, then the `output` directory must be provided.'
     output = Path(output).resolve()
 
@@ -127,10 +127,10 @@ def check(
     if config_type is dict:
         pass
     elif (
-        # If all conditions are True, config_type is assumed to be a TypedDict.
-        issubclass(config_type, dict)
-        and hasattr(config_type, '__required_keys__')
-        and hasattr(config_type, '__optional_keys__')
+            # If all conditions are True, config_type is assumed to be a TypedDict.
+            issubclass(config_type, dict)
+            and hasattr(config_type, '__required_keys__')
+            and hasattr(config_type, '__optional_keys__')
     ):
         # >>> Check the keys.
         presented_keys = frozenset(config)
@@ -274,7 +274,7 @@ def load_config(output_or_config: str | Path) -> JSONDict:
 
 
 def dump_config(
-    output_or_config: str | Path, config: JSONDict, *, force: bool = False
+        output_or_config: str | Path, config: JSONDict, *, force: bool = False
 ) -> None:
     config_path = Path(output_or_config).with_suffix('.toml')
     if config_path.exists() and not force:
@@ -289,8 +289,9 @@ def load_report(output: str | Path) -> JSONDict:
     return json.loads(Path(output).joinpath('report.json').read_text())
 
 
-def dump_report(output: str | Path, report: JSONDict) -> None:
-    Path(output).joinpath('report.json').write_text(json.dumps(report, indent=4))
+def dump_report(output: str | Path, report: JSONDict, bayes_ensemble=False) -> None:
+    file_name = 'report.json' if not bayes_ensemble else 'report_bayes_ensemble.json'
+    Path(output).joinpath(file_name).write_text(json.dumps(report, indent=4))
 
 
 def load_summary(output: str | Path) -> JSONDict:
@@ -301,8 +302,9 @@ def print_summary(output: str | Path):
     pprint(load_summary(output), sort_dicts=False, width=60)
 
 
-def dump_summary(output: str | Path, summary: JSONDict) -> None:
-    Path(output).joinpath('summary.json').write_text(json.dumps(summary, indent=4))
+def dump_summary(output: str | Path, summary: JSONDict, bayes_ensemble: bool = False) -> None:
+    file_name = 'summary.json' if not bayes_ensemble else 'summary_bayes_ensemble.json'
+    Path(output).joinpath(file_name).write_text(json.dumps(summary, indent=4))
 
 
 def load_predictions(output: str | Path) -> dict[PartKey, np.ndarray]:
@@ -311,9 +313,10 @@ def load_predictions(output: str | Path) -> dict[PartKey, np.ndarray]:
 
 
 def dump_predictions(
-    output: str | Path, predictions: dict[PartKey, np.ndarray]
+        output: str | Path, predictions: dict[PartKey, np.ndarray], bayes_ensemble: bool = False
 ) -> None:
-    np.savez(Path(output) / 'predictions.npz', **predictions)
+    file_name = 'predictions.npz' if not bayes_ensemble else 'predictions_bayes_ensemble.npz'
+    np.savez(Path(output) / file_name, **predictions)
 
 
 def get_checkpoint_path(output: str | Path) -> Path:
@@ -398,9 +401,9 @@ def get_device():  # -> torch.device
 def is_dataparallel_available() -> bool:
     torch = _torch()
     return (
-        torch.cuda.is_available()
-        and torch.cuda.device_count() > 1
-        and 'CUDA_VISIBLE_DEVICES' in os.environ
+            torch.cuda.is_available()
+            and torch.cuda.device_count() > 1
+            and 'CUDA_VISIBLE_DEVICES' in os.environ
     )
 
 
@@ -468,6 +471,7 @@ def are_valid_predictions(predictions: dict) -> bool:
     Returns:
         bool: True if all numpy arrays contain finite values, False otherwise.
     """
+
     def check_validity(preds):
         if isinstance(preds, np.ndarray):
             return np.isfinite(preds).all()
@@ -477,6 +481,7 @@ def are_valid_predictions(predictions: dict) -> bool:
 
     assert isinstance(predictions, dict), "Predictions must be a dictionary."
     return check_validity(predictions)
+
 
 def import_(qualname: str) -> Any:
     """
