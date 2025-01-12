@@ -5,6 +5,24 @@ from torch.distributions import Normal
 from .util import init_rsqrt_uniform_
 
 
+def truncated_normal_(tensor, mean=0.0, std=1.0, a=-2.0, b=2.0):
+    """
+    Apply truncated normal initialization to a tensor.
+
+    Parameters:
+        tensor (torch.Tensor): The tensor to initialize.
+        mean (float): Mean of the normal distribution.
+        std (float): Standard deviation of the normal distribution.
+        a (float): Lower truncation boundary.
+        b (float): Upper truncation boundary.
+    """
+    with torch.no_grad():
+        # Fill the tensor with a normal distribution
+        tensor.normal_(mean=mean, std=std)
+        # Clamp values to lie within [a, b]
+        tensor.clamp_(min=a, max=b)
+
+
 # Bayesian Linear Layer
 class BayesianLinear(nn.Module):
     def __init__(self, in_features, out_features, prior_std=1.0, device='cuda'):
@@ -22,8 +40,11 @@ class BayesianLinear(nn.Module):
         self.bias_mu = nn.Parameter(torch.empty(out_features, device=self.device))
         self.bias_logvar = nn.Parameter(torch.empty(out_features, device=self.device))
 
+        truncated_normal_(self.weight_mu)
         # init_rsqrt_uniform_(self.weight_mu, self.weight_mu.shape[-1])
-        nn.init.constant_(self.weight_mu, 0.0)
+        # nn.init.xavier_normal_(self.weight_mu)
+        # nn.init.normal_(self.weight_mu)
+        # nn.init.constant_(self.weight_mu, 0.0)
         nn.init.constant_(self.bias_mu, 0.0)
 
         # Initialize weight_logvar and bias_logvar with small constant values (e.g., -10)
