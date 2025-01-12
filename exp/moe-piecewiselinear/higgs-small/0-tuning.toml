@@ -27,7 +27,7 @@ weight_decay = ["_tune_", "?loguniform", 0.0, 0.0001, 0.1]
 arch_type = "plain"
 
 [space.model.backbone]
-type = "MoE"
+type = "BMoE"
 n_blocks = ["_tune_", "int", 1, 2]
 d_block = ["_tune_", "int", 128, 2048, 32]
 num_experts = [
