@@ -3,6 +3,7 @@ import torch
 
 from torch.distributions import Normal
 from .util import init_rsqrt_uniform_
+import math
 
 
 def truncated_normal_(tensor, mean=0.0, std=1.0, a=-2.0, b=2.0):
@@ -40,17 +41,22 @@ class BayesianLinear(nn.Module):
         self.bias_mu = nn.Parameter(torch.empty(out_features, device=self.device))
         self.bias_logvar = nn.Parameter(torch.empty(out_features, device=self.device))
 
-        truncated_normal_(self.weight_mu)
+        truncated_normal_(self.weight_mu, mean=0.0, std=self.prior_std, a=-2 * self.prior_std, b=2 * prior_std)
         # init_rsqrt_uniform_(self.weight_mu, self.weight_mu.shape[-1])
         # nn.init.xavier_normal_(self.weight_mu)
         # nn.init.normal_(self.weight_mu)
         # nn.init.constant_(self.weight_mu, 0.0)
         nn.init.constant_(self.bias_mu, 0.0)
 
-        # Initialize weight_logvar and bias_logvar with small constant values (e.g., -10)
-        # This ensures initial uncertainty is small
-        nn.init.constant_(self.weight_logvar, 0.0)  # -4.605 is equal to std=0.1; 0 is equal to std=1.0
-        nn.init.constant_(self.bias_logvar, 0.0)
+        # nn.init.constant_(self.weight_logvar, math.log(self.prior_std**2))
+        log_var_mean_prior = math.log(self.prior_std ** 2)
+        log_var_std_prior = self.prior_std / 10
+
+        truncated_normal_(self.weight_logvar, mean=log_var_mean_prior, std=log_var_std_prior,
+                          a=log_var_mean_prior - 2.0 * log_var_std_prior,
+                          b=log_var_mean_prior + 2.0 * log_var_std_prior)
+
+        nn.init.constant_(self.bias_logvar, log_var_mean_prior)
         # Prior distributions
         self.prior_weight = Normal(torch.zeros_like(self.weight_mu), prior_std * torch.ones_like(self.weight_mu))
         self.prior_bias = Normal(torch.zeros_like(self.bias_mu), prior_std * torch.ones_like(self.bias_mu))
@@ -83,10 +89,12 @@ class BayesianLinear(nn.Module):
             weight = self.weight_mu + weight_std * torch.randn_like(self.weight_mu)
             bias = self.bias_mu + bias_std * torch.randn_like(self.bias_mu)
 
-            return torch.addmm(bias, x, weight.t())
+            # return torch.addmm(bias, x, weight.t())
+            return nn.functional.linear(x, weight, bias)
 
         elif num_samples == 0:  # e.g MAP estimation
-            return torch.addmm(self.bias_mu, x, self.weight_mu.t())
+            # return torch.addmm(self.bias_mu, x, self.weight_mu.t())
+            return nn.functional.linear(x, self.weight_mu, self.bias_mu)
 
         weight_std = torch.exp(0.5 * self.weight_logvar).unsqueeze(0)
         bias_std = torch.exp(0.5 * self.bias_logvar).unsqueeze(0)
