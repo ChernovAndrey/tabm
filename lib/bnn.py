@@ -31,6 +31,7 @@ class BayesianLinear(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         self.device = device
+        self.prior_std = prior_std
         # Variational parameters for posterior
 
         # Initialize weight_mu and weight_logvar
