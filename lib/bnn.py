@@ -31,7 +31,8 @@ class BayesianLinear(nn.Module):
         self.in_features = in_features
         self.out_features = out_features
         self.device = device
-        self.prior_std = prior_std
+        # self.prior_std = prior_std
+        self.prior_std = 0.5
         # Variational parameters for posterior
 
         # Initialize weight_mu and weight_logvar
@@ -59,8 +60,8 @@ class BayesianLinear(nn.Module):
 
         nn.init.constant_(self.bias_logvar, log_var_mean_prior)
         # Prior distributions
-        self.prior_weight = Normal(torch.zeros_like(self.weight_mu), prior_std * torch.ones_like(self.weight_mu))
-        self.prior_bias = Normal(torch.zeros_like(self.bias_mu), prior_std * torch.ones_like(self.bias_mu))
+        self.prior_weight = Normal(torch.zeros_like(self.weight_mu), self.prior_std * torch.ones_like(self.weight_mu))
+        self.prior_bias = Normal(torch.zeros_like(self.bias_mu), self.prior_std * torch.ones_like(self.bias_mu))
 
     # def forward(self, x):
     #     # Reparameterization trick to sample weights and biases
