@@ -1,0 +1,37 @@
+seed = 0
+batch_size = 64
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+n_bayesian_ensembles = [
+    1,
+    5,
+    10,
+    100,
+]
+num_samples = 100
+return_average = false
+
+[data]
+cache = true
+path = "data/regression-cat-medium-3-Mercedes_Benz_Greener_Manufacturing"
+cat_policy = "ordinal"
+
+[optimizer]
+type = "AdamW"
+lr = 0.0001436883231556663
+weight_decay = 0.0005809669796517549
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 1
+d_block = 608
+dropout = 0.0
+num_experts = 19
+gating_prior_std = 1.0
+kl_factor = 0.01
+gating_type = "bayesian"
