@@ -354,14 +354,18 @@ class BMoE(nn.Module):
             d_block: int,
             dropout: float,
             activation: str = 'ReLU',
-            num_experts: int,
+            num_experts: None | int = None,
             gating_type: str,  # ['standard' or 'bayesian']
             kl_factor: int,
             gating_prior_std: float,
+            d_block_per_expert: None | int
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
         assert gating_type in ['standard', 'bayesian']
         super().__init__()
+        if d_block_per_expert is not None:
+            num_experts = d_block // d_block_per_expert
+            print(f'num experts is set to :{num_experts}')
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print("Using device:", device)
         self.device = device
