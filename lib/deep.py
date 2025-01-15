@@ -358,7 +358,7 @@ class BMoE(nn.Module):
             gating_type: str,  # ['standard' or 'bayesian']
             kl_factor: int,
             gating_prior_std: float,
-            d_block_per_expert: None | int
+            d_block_per_expert: None | int = None
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
         assert gating_type in ['standard', 'bayesian']
