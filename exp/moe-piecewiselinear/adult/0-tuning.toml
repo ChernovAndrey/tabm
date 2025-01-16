@@ -27,7 +27,6 @@ lr = [
     0.0003,
     0.01,
 ]
-
 weight_decay = [
     "_tune_",
     "?loguniform",
@@ -45,27 +44,15 @@ n_blocks = [
     "_tune_",
     "int",
     1,
-    2,
+    5,
 ]
-
 d_block = [
     "_tune_",
     "int",
     128,
-    2048,
-    32,
+    1280,
+    64,
 ]
-
-num_experts = [
-    "_tune_",
-    "int",
-    4,
-    40,
-    4,
-]
-gating_type = 'standard'
-gating_prior_std = 1.0
-kl_factor = 1e-2
 dropout = [
     "_tune_",
     "?uniform",
@@ -73,6 +60,16 @@ dropout = [
     0.0,
     0.5,
 ]
+d_block_per_expert = [
+    "_tune_",
+    "int",
+    32,
+    64,
+    32,
+]
+gating_prior_std = 1.0
+kl_factor = 0.01
+gating_type = "standard"
 
 [space.model.num_embeddings]
 type = "PiecewiseLinearEmbeddings"
