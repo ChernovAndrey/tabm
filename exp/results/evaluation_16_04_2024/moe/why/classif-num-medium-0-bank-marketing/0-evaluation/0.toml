@@ -1,0 +1,29 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/classif-num-medium-0-bank-marketing"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.003940741896962187
+weight_decay = 0.02215234265657579
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 2
+d_block = 896
+dropout = 0.31960396794538093
+d_block_per_expert = 64
+gating_prior_std = 0.1
+kl_factor = 0.01
+gating_type = "standard"

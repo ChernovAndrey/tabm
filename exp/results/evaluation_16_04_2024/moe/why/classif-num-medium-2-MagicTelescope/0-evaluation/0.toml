@@ -1,0 +1,29 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/classif-num-medium-2-MagicTelescope"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.002166429938897645
+weight_decay = 0.00020838341403325112
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 4
+d_block = 256
+dropout = 0.1699550525409645
+d_block_per_expert = 64
+gating_prior_std = 0.1
+kl_factor = 0.01
+gating_type = "standard"
