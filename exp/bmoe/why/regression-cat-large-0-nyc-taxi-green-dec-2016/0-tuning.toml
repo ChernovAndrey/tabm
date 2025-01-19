@@ -20,19 +20,12 @@ num_policy = "noisy-quantile"
 cat_policy = "ordinal"
 
 [space.optimizer]
-type = "AdamW"
+type = "Adam"
 lr = [
     "_tune_",
     "loguniform",
     0.0003,
     0.01,
-]
-weight_decay = [
-    "_tune_",
-    "?loguniform",
-    0.0,
-    0.0001,
-    0.1,
 ]
 
 [space.model]
@@ -44,23 +37,34 @@ n_blocks = [
     "_tune_",
     "int",
     1,
-    2,
+    6,
 ]
 d_block = [
     "_tune_",
     "int",
     128,
-    2048,
-    32,
+    1280,
+    64,
 ]
 dropout = 0.0
-num_experts = [
+d_block_per_expert = [
     "_tune_",
     "int",
-    4,
-    40,
-    4,
+    32,
+    64,
+    32,
 ]
+gating_prior_std = [
+    "_tune_",
+    "uniform",
+    0.1,
+    1.0,
+]
+kl_factor = [
+    "_tune_",
+    "loguniform",
+    0.001,
+    1.0,
+]
+default_num_samples = 5
 gating_type = "bayesian"
-gating_prior_std = 1.0
-kl_factor = 0.01

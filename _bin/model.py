@@ -480,7 +480,7 @@ def main(
 
     @evaluation_mode()
     def evaluate(
-            parts: list[PartKey], eval_batch_size: int, return_average: bool = True, num_samples: int = 0
+            parts: list[PartKey], eval_batch_size: int, return_average: bool = True, num_samples: None | int = None
     ) -> tuple[
         dict[PartKey, Any], dict[PartKey, np.ndarray], dict[PartKey, np.ndarray], int
     ]:

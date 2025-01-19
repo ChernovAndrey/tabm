@@ -26,13 +26,13 @@ def truncated_normal_(tensor, mean=0.0, std=1.0, a=-2.0, b=2.0):
 
 # Bayesian Linear Layer
 class BayesianLinear(nn.Module):
-    def __init__(self, in_features, out_features, prior_std=1.0, device='cuda'):
+    def __init__(self, in_features, out_features, prior_std=1.0,  device='cuda'):
         super(BayesianLinear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
         self.device = device
-        # self.prior_std = prior_std
-        self.prior_std = 0.1
+        self.prior_std = prior_std
+        print(f'prior std:{prior_std}')
         # Variational parameters for posterior
 
         # Initialize weight_mu and weight_logvar
@@ -43,7 +43,7 @@ class BayesianLinear(nn.Module):
         self.bias_mu = nn.Parameter(torch.empty(out_features, device=self.device))
         self.bias_logvar = nn.Parameter(torch.empty(out_features, device=self.device))
 
-        truncated_normal_(self.weight_mu, mean=0.0, std=self.prior_std, a=-2 * self.prior_std, b=2 * prior_std)
+        truncated_normal_(self.weight_mu, mean=0.0, std=self.prior_std, a=-2 * self.prior_std, b=2 * self.prior_std)
         # init_rsqrt_uniform_(self.weight_mu, self.weight_mu.shape[-1])
         # nn.init.xavier_normal_(self.weight_mu)
         # nn.init.normal_(self.weight_mu)

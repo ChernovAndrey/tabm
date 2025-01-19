@@ -358,7 +358,8 @@ class BMoE(nn.Module):
             gating_type: str,  # ['standard' or 'bayesian']
             kl_factor: int,
             gating_prior_std: float,
-            d_block_per_expert: None | int = None
+            d_block_per_expert: None | int = None,
+            default_num_samples: int = 5,
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
         assert gating_type in ['standard', 'bayesian']
@@ -373,7 +374,10 @@ class BMoE(nn.Module):
         self.kl_factor = kl_factor
         self.num_experts = num_experts
         self.gating_type = gating_type
+        self.default_num_samples = default_num_samples
         print(f'gating type:{self.gating_type}')
+        print(f'default num samples:{self.default_num_samples}')
+        print(f'kl_factor: {kl_factor}')
         d_first = d_block // num_experts if d_in is None else d_in
 
         self.stat_alpha_sum = None
@@ -407,7 +411,7 @@ class BMoE(nn.Module):
         else:
             raise ValueError(f'The gating type "{self.gating_type}" is not supported.')
 
-    def forward(self, x: Tensor, num_samples: int = 0, return_average: bool = True) -> Tensor:
+    def forward(self, x: Tensor, num_samples: None | int = None, return_average: bool = True) -> Tensor:
         """
         If self.training is True:
            - Sample one alpha from gate (as usual),
@@ -420,9 +424,15 @@ class BMoE(nn.Module):
         """
         # print(f'num samples:{num_samples}')
         # TODO: improve code clarity
+        if self.training or self.gating_type == 'standard':
+            num_samples = 1
+        elif num_samples is None:
+            num_samples = self.default_num_samples
+
+
         if self.training or num_samples < 2 or self.gating_type == 'standard':
             # [batch_size, num_experts] -> [num_experts, batch_size]
-            alpha = self.gate(x, num_samples=1) if self.gating_type == 'bayesian' \
+            alpha = self.gate(x, num_samples=num_samples) if self.gating_type == 'bayesian' \
                 else self.gate(x)
             alpha = alpha.transpose(-1, -2)
         else:
