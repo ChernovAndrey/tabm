@@ -7,13 +7,12 @@ amp = true
 
 [data]
 cache = true
-path = "data/regression-cat-medium-1-Brazilian_houses"
+path = "data/regression-num-medium-0-MiamiHousing2016"
 num_policy = "noisy-quantile"
-cat_policy = "ordinal"
 
 [optimizer]
 type = "AdamW"
-lr = 0.0018699628222328475
+lr = 0.0014741487160743311
 weight_decay = 0.0
 
 [model]
@@ -21,10 +20,10 @@ arch_type = "plain"
 
 [model.backbone]
 type = "BMoE"
-n_blocks = 5
-d_block = 640
-dropout = 0.0
-d_block_per_expert = 64
+n_blocks = 2
+d_block = 768
+dropout = 0.19743883561802594
+d_block_per_expert = 32
 gating_prior_std = 0.1
 kl_factor = 0.01
 gating_type = "standard"

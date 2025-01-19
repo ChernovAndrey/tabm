@@ -13,18 +13,18 @@ cat_policy = "ordinal"
 
 [optimizer]
 type = "AdamW"
-lr = 0.00438539385318881
-weight_decay = 0.080509568822398
+lr = 0.0011062767270481428
+weight_decay = 0.0004623104894788941
 
 [model]
 arch_type = "plain"
 
 [model.backbone]
 type = "BMoE"
-n_blocks = 6
-d_block = 640
+n_blocks = 5
+d_block = 1216
 dropout = 0.0
-d_block_per_expert = 64
+d_block_per_expert = 32
 gating_prior_std = 0.1
 kl_factor = 0.01
 gating_type = "standard"
