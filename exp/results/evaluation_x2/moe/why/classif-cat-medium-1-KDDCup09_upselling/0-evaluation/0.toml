@@ -1,0 +1,30 @@
+seed = 0
+batch_size = 64
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/classif-cat-medium-1-KDDCup09_upselling"
+num_policy = "noisy-quantile"
+cat_policy = "ordinal"
+
+[optimizer]
+type = "AdamW"
+lr = 0.006770848667764572
+weight_decay = 0.004241342338968083
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 6
+d_block = 512
+dropout = 0.41649362193148476
+d_block_per_expert = 128
+gating_prior_std = 1.0
+kl_factor = 0.01
+gating_type = "standard"

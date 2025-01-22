@@ -356,8 +356,8 @@ class BMoE(nn.Module):
             activation: str = 'ReLU',
             num_experts: None | int = None,
             gating_type: str,  # ['standard' or 'bayesian']
-            kl_factor: int,
-            gating_prior_std: float,
+            kl_factor: float = 1e-2,
+            gating_prior_std: float = 1.0,
             d_block_per_expert: None | int = None,
             default_num_samples: int = 5,
             tau: float = 1.0,
