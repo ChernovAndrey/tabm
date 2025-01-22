@@ -409,7 +409,7 @@ class BMoE(nn.Module):
             #     prior_std=gating_prior_std,
             #     device=self.device,
             # )
-            self.gate = GumbelGatingNetwork(d_first, num_experts, tau=tau)
+            self.gate = GumbelGatingNetwork(d_first, num_experts, tau=tau, device=device)
         else:
             raise ValueError(f'The gating type "{self.gating_type}" is not supported.')
 
@@ -799,8 +799,8 @@ def zero_grad_forward_backward(
         try:
             if batch_size <= chunk_size:
                 # The simple forward-backward.
-                # kl_loss = get_kl_loss()
-                loss = step_fn(batch_idx)# + kl_loss
+                kl_loss = get_kl_loss()
+                loss = step_fn(batch_idx) + kl_loss
                 backward(loss)
             else:
                 # Forward-backward by chunks.

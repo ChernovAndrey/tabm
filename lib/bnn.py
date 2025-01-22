@@ -167,10 +167,11 @@ class GumbelGatingNetwork(nn.Module):
     We'll provide a method to sum the KL from both layers.
     """
 
-    def __init__(self, in_features=784, num_experts=3, tau=1.0, prior_std=1.0, device='cuda'):
+    def __init__(self, in_features=784, num_experts=3, tau=1.0, device='cuda'):
         super().__init__()
         self.lin = nn.Linear(in_features, num_experts)
         self.tau = tau
+        self.device = device
         print(f'tau={self.tau}')
 
     def forward(self, x, num_samples: int, hard: bool = False):
@@ -192,5 +193,5 @@ class GumbelGatingNetwork(nn.Module):
         """
         # return self.blin1.kl_loss() + self.blin2.kl_loss()
         # return self.blin.kl_loss()
-        return torch.tensor(0.0)
+        return torch.tensor(0.0).to(self.device)
         # return self.blin.kl_loss()
