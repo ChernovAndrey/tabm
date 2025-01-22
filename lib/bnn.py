@@ -2,6 +2,7 @@ from torch import nn
 import torch
 
 from torch.distributions import Normal
+import torch.nn.functional as F
 from .util import init_rsqrt_uniform_
 import math
 
@@ -26,7 +27,7 @@ def truncated_normal_(tensor, mean=0.0, std=1.0, a=-2.0, b=2.0):
 
 # Bayesian Linear Layer
 class BayesianLinear(nn.Module):
-    def __init__(self, in_features, out_features, prior_std=1.0,  device='cuda'):
+    def __init__(self, in_features, out_features, prior_std=1.0, device='cuda'):
         super(BayesianLinear, self).__init__()
         self.in_features = in_features
         self.out_features = out_features
@@ -158,3 +159,38 @@ class BayesianGatingNetwork(nn.Module):
         """
         # return self.blin1.kl_loss() + self.blin2.kl_loss()
         return self.blin.kl_loss()
+
+
+class GumbelGatingNetwork(nn.Module):
+    """
+    MLP gating with BayesianLinear for each layer.
+    We'll provide a method to sum the KL from both layers.
+    """
+
+    def __init__(self, in_features=784, num_experts=3, tau=1.0, prior_std=1.0, device='cuda'):
+        super().__init__()
+        self.lin = nn.Linear(in_features, num_experts)
+        self.tau = tau
+        print(f'tau={self.tau}')
+
+    def forward(self, x, num_samples: int, hard: bool = False):
+        logits = self.lin(x)  # shape: (batch, num_experts) or (num_samples, batch, num_experts)
+        if num_samples < 2:
+            # alpha = torch.softmax(logits, dim=-1)  # gating coefficients
+            alpha = F.gumbel_softmax(logits, dim=-1, tau=self.tau, hard=hard)  # gating coefficients
+        else:
+            # Expand logits along the batch dimension for num_samples
+            logits_expanded = logits.unsqueeze(0).expand(num_samples, -1, -1)
+
+            # Sample using PyTorch's gumbel_softmax function
+            alpha = F.gumbel_softmax(logits_expanded, tau=self.tau, hard=hard, dim=-1)
+        return alpha
+
+    def kl_loss(self):
+        """
+        Sum KL from each BayesianLinear sub-layer.
+        """
+        # return self.blin1.kl_loss() + self.blin2.kl_loss()
+        # return self.blin.kl_loss()
+        return torch.tensor(0.0)
+        # return self.blin.kl_loss()

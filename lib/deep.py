@@ -12,7 +12,7 @@ from torch import Tensor
 from torch.nn import Parameter
 
 from .util import is_oom_exception, init_rsqrt_uniform_
-from .bnn import BayesianGatingNetwork
+from .bnn import BayesianGatingNetwork, GumbelGatingNetwork
 
 
 # ======================================================================================
@@ -360,6 +360,7 @@ class BMoE(nn.Module):
             gating_prior_std: float,
             d_block_per_expert: None | int = None,
             default_num_samples: int = 5,
+            tau: float = 1.0,
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
         assert gating_type in ['standard', 'bayesian']
@@ -393,7 +394,7 @@ class BMoE(nn.Module):
 
         self.activation = getattr(nn, activation)()
 
-        self.dropout = nn.Dropout(dropout) if self.gating_type == 'standard' else None
+        self.dropout = nn.Dropout(dropout)  # if self.gating_type == 'standard' else None
 
         if self.gating_type == 'standard':
             self.gate = nn.Sequential(
@@ -402,12 +403,13 @@ class BMoE(nn.Module):
             )
 
         elif self.gating_type == 'bayesian':
-            self.gate = BayesianGatingNetwork(
-                in_features=d_first,
-                num_experts=num_experts,
-                prior_std=gating_prior_std,
-                device=self.device,
-            )
+            # self.gate = BayesianGatingNetwork(
+            #     in_features=d_first,
+            #     num_experts=num_experts,
+            #     prior_std=gating_prior_std,
+            #     device=self.device,
+            # )
+            self.gate = GumbelGatingNetwork(d_first, num_experts, tau=tau)
         else:
             raise ValueError(f'The gating type "{self.gating_type}" is not supported.')
 
@@ -428,7 +430,6 @@ class BMoE(nn.Module):
             num_samples = 1
         elif num_samples is None:
             num_samples = self.default_num_samples
-
 
         if self.training or num_samples < 2 or self.gating_type == 'standard':
             # [batch_size, num_experts] -> [num_experts, batch_size]
@@ -534,128 +535,128 @@ class MoIEBlock(nn.Module):
         return combined
 
 
-class BMoIE(nn.Module):
-    def __init__(
-            self,
-            *,
-            d_in: None | int = None,
-            d_out: None | int = None,
-            n_blocks: int,
-            d_block: int,
-            dropout: float,
-            activation: str = 'ReLU',
-            # activation: str = 'GELU',
-            num_experts: int,
-            gating_type: str,  # ['standard' or 'bayesian']
-            kl_factor: int,
-            gating_prior_std: float,
-            device: str = 'cpu',  # TODO: check whether is it necessary to pass
-    ) -> None:
-        assert gating_type in ['standard', 'bayesian']
-        super().__init__()
-        self.device = device
-        self.num_experts = num_experts
-        self.gating_type = gating_type
-        self.kl_factor = kl_factor
-        print(f'gating type: {self.gating_type}')
-        d_first = d_block // num_experts if d_in is None else d_in
-
-        self.stat_alpha_sum = None
-        # Gating network
-        self.gating_type = gating_type
-        if self.gating_type == 'standard':
-            self.gate = nn.Sequential(
-                nn.Linear(d_first, num_experts),
-                nn.Softmax(dim=-1)
-            )
-
-            self.blocks = nn.ModuleList(
-                [
-                    nn.Sequential(
-                        MoIEBlock(d_first if i == 0 else d_block // num_experts, d_block // num_experts, num_experts,
-                                  activation=False),
-                        getattr(nn, activation)(),
-                        nn.Dropout(dropout)
-                    )
-                    for i in range(n_blocks)
-                ]
-            )
-        elif self.gating_type == 'bayesian':
-            self.gate = BayesianGatingNetwork(
-                in_features=d_first,
-                num_experts=num_experts,
-                prior_std=gating_prior_std,
-                device=self.device,
-            )
-
-            self.blocks = nn.ModuleList(
-                [
-                    nn.Sequential(
-                        MoIEBlock(d_first if i == 0 else d_block // num_experts, d_block // num_experts, num_experts,
-                                  activation=False),
-                        getattr(nn, activation)()
-                    )
-                    for i in range(n_blocks)
-                ]
-            )
-        else:
-            assert False, f'The gating type {self.gating_type} is not supported'
-
-        self.output = None if d_out is None else MoIEBlock(d_block // num_experts, d_out, num_experts, activation=False)
-        print(f'd_out:{d_out}')
-        print(self.blocks)
-        print('output:')
-        print(self.output)
-
-        self.device = device
-        self.gating_type = gating_type
-        self.stat_alpha_sum = None
-
-    def forward(self, x):
-        """
-        x shape: (B, input_dim)
-        alpha shape: (B, K)
-
-        For simplicity, we'll assume we use the *same* alpha at each layer.
-        If you want different gating per layer, you'd have multiple gating nets
-        or a more advanced design.
-        """
-        alpha = self.gate(x)  # shape (B, K)
-
-        # store for later analysis
-        if self.training:
-            if self.stat_alpha_sum is None:
-                self.stat_alpha_sum = alpha.sum(axis=0).detach().cpu().numpy()
-            else:
-                self.stat_alpha_sum += alpha.sum(axis=0).detach().cpu().numpy()
-        # if np.random.random() < 0.01:
-        #     print(f'alphas:{self.stat_alpha_mean}')
-
-        # Pass through 1st MoE block
-        for block in self.blocks:
-            x = block[0](x, alpha)  # Pass both arguments to the first block
-            for i in range(1, len(block)):
-                x = block[i](x)  # Apply the activation and dropout
-        if self.output is not None:
-            x = self.output(x, alpha)
-        return x
-
-    # expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
-    #
-    # # Weighted sum of expert outputs
-    # output = torch.sum(alpha.unsqueeze(-1) * expert_outputs, dim=1)
-    # return output
-
-    def get_kl_loss(self):
-        """
-        Only gating is Bayesian, so just return gating's KL.
-        """
-        if self.gating_type == 'standard':
-            return torch.tensor(0.0).to(self.device)
-        elif self.gating_type == 'bayesian':
-            return self.kl_factor * self.gate.kl_loss()
-        else:
-            assert False, f'The gating type {self.gating_type} is not supported'
+# class BMoIE(nn.Module):
+#     def __init__(
+#             self,
+#             *,
+#             d_in: None | int = None,
+#             d_out: None | int = None,
+#             n_blocks: int,
+#             d_block: int,
+#             dropout: float,
+#             activation: str = 'ReLU',
+#             # activation: str = 'GELU',
+#             num_experts: int,
+#             gating_type: str,  # ['standard' or 'bayesian']
+#             kl_factor: int,
+#             gating_prior_std: float,
+#             device: str = 'cpu',  # TODO: check whether is it necessary to pass
+#     ) -> None:
+#         assert gating_type in ['standard', 'bayesian']
+#         super().__init__()
+#         self.device = device
+#         self.num_experts = num_experts
+#         self.gating_type = gating_type
+#         self.kl_factor = kl_factor
+#         print(f'gating type: {self.gating_type}')
+#         d_first = d_block // num_experts if d_in is None else d_in
+#
+#         self.stat_alpha_sum = None
+#         # Gating network
+#         self.gating_type = gating_type
+#         if self.gating_type == 'standard':
+#             self.gate = nn.Sequential(
+#                 nn.Linear(d_first, num_experts),
+#                 nn.Softmax(dim=-1)
+#             )
+#
+#             self.blocks = nn.ModuleList(
+#                 [
+#                     nn.Sequential(
+#                         MoIEBlock(d_first if i == 0 else d_block // num_experts, d_block // num_experts, num_experts,
+#                                   activation=False),
+#                         getattr(nn, activation)(),
+#                         nn.Dropout(dropout)
+#                     )
+#                     for i in range(n_blocks)
+#                 ]
+#             )
+#         elif self.gating_type == 'bayesian':
+#             self.gate = BayesianGatingNetwork(
+#                 in_features=d_first,
+#                 num_experts=num_experts,
+#                 prior_std=gating_prior_std,
+#                 device=self.device,
+#             )
+#
+#             self.blocks = nn.ModuleList(
+#                 [
+#                     nn.Sequential(
+#                         MoIEBlock(d_first if i == 0 else d_block // num_experts, d_block // num_experts, num_experts,
+#                                   activation=False),
+#                         getattr(nn, activation)()
+#                     )
+#                     for i in range(n_blocks)
+#                 ]
+#             )
+#         else:
+#             assert False, f'The gating type {self.gating_type} is not supported'
+#
+#         self.output = None if d_out is None else MoIEBlock(d_block // num_experts, d_out, num_experts, activation=False)
+#         print(f'd_out:{d_out}')
+#         print(self.blocks)
+#         print('output:')
+#         print(self.output)
+#
+#         self.device = device
+#         self.gating_type = gating_type
+#         self.stat_alpha_sum = None
+#
+#     def forward(self, x):
+#         """
+#         x shape: (B, input_dim)
+#         alpha shape: (B, K)
+#
+#         For simplicity, we'll assume we use the *same* alpha at each layer.
+#         If you want different gating per layer, you'd have multiple gating nets
+#         or a more advanced design.
+#         """
+#         alpha = self.gate(x)  # shape (B, K)
+#
+#         # store for later analysis
+#         if self.training:
+#             if self.stat_alpha_sum is None:
+#                 self.stat_alpha_sum = alpha.sum(axis=0).detach().cpu().numpy()
+#             else:
+#                 self.stat_alpha_sum += alpha.sum(axis=0).detach().cpu().numpy()
+#         # if np.random.random() < 0.01:
+#         #     print(f'alphas:{self.stat_alpha_mean}')
+#
+#         # Pass through 1st MoE block
+#         for block in self.blocks:
+#             x = block[0](x, alpha)  # Pass both arguments to the first block
+#             for i in range(1, len(block)):
+#                 x = block[i](x)  # Apply the activation and dropout
+#         if self.output is not None:
+#             x = self.output(x, alpha)
+#         return x
+#
+#     # expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
+#     #
+#     # # Weighted sum of expert outputs
+#     # output = torch.sum(alpha.unsqueeze(-1) * expert_outputs, dim=1)
+#     # return output
+#
+#     def get_kl_loss(self):
+#         """
+#         Only gating is Bayesian, so just return gating's KL.
+#         """
+#         if self.gating_type == 'standard':
+#             return torch.tensor(0.0).to(self.device)
+#         elif self.gating_type == 'bayesian':
+#             return self.kl_factor * self.gate.kl_loss()
+#         else:
+#             assert False, f'The gating type {self.gating_type} is not supported'
 
 
 _CUSTOM_MODULES = {
@@ -668,7 +669,6 @@ _CUSTOM_MODULES = {
         PiecewiseLinearEmbeddings,
         MLP,
         BMoE,
-        BMoIE
     ]
 }
 
