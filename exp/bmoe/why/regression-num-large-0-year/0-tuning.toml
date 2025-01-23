@@ -19,12 +19,19 @@ path = "data/regression-num-large-0-year"
 num_policy = "noisy-quantile"
 
 [space.optimizer]
-type = "Adam"
+type = "AdamW"
 lr = [
     "_tune_",
     "loguniform",
     0.0003,
     0.01,
+]
+weight_decay = [
+    "_tune_",
+    "?loguniform",
+    0.0,
+    0.0001,
+    0.1,
 ]
 
 [space.model]
@@ -45,7 +52,13 @@ d_block = [
     1280,
     64,
 ]
-dropout = 0.0
+dropout = [
+    "_tune_",
+    "?uniform",
+    0.0,
+    0.0,
+    0.5,
+]
 d_block_per_expert = [
     "_tune_",
     "int",
@@ -53,17 +66,11 @@ d_block_per_expert = [
     64,
     32,
 ]
-gating_prior_std = [
+default_num_samples = 10
+tau = [
     "_tune_",
     "uniform",
-    0.1,
-    1.0,
+    0.5,
+    3.0,
 ]
-kl_factor = [
-    "_tune_",
-    "loguniform",
-    0.001,
-    1.0,
-]
-default_num_samples = 5
 gating_type = "bayesian"
