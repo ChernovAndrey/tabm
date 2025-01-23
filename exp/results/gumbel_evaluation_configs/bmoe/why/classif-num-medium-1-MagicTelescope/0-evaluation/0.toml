@@ -1,0 +1,37 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+n_bayesian_ensembles = [
+    1,
+    5,
+    10,
+    100,
+]
+num_samples = 100
+return_average = false
+
+[data]
+cache = true
+path = "data/classif-num-medium-1-MagicTelescope"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "Adam"
+lr = 0.0024576834251462316
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 5
+d_block = 1024
+dropout = 0.0
+d_block_per_expert = 32
+gating_prior_std = 0.24155794312743578
+kl_factor = 0.023998453108648468
+default_num_samples = 10
+gating_type = "bayesian"

@@ -1,0 +1,44 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+n_bayesian_ensembles = [
+    1,
+    5,
+    10,
+    100,
+]
+num_samples = 100
+return_average = false
+
+[data]
+cache = true
+path = "data/classif-num-medium-0-credit"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "Adam"
+lr = 0.000504870553541807
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 3
+d_block = 192
+dropout = 0.0
+d_block_per_expert = 32
+gating_prior_std = 0.6579517026489453
+kl_factor = 0.0036695323403314025
+default_num_samples = 10
+gating_type = "bayesian"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 16
+
+[bins]
+n_bins = 47
