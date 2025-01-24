@@ -1,5 +1,5 @@
 seed = 0
-batch_size = 512
+batch_size = 1024
 patience = 16
 n_epochs = -1
 gradient_clipping_norm = 1.0
@@ -15,13 +15,14 @@ return_average = false
 
 [data]
 cache = true
-path = "data/classif-num-large-0-jannis"
+path = "data/covtype2"
 num_policy = "noisy-quantile"
+cat_policy = "ordinal"
 
 [optimizer]
 type = "AdamW"
-lr = 0.0007785452412752401
-weight_decay = 0.0
+lr = 0.0009751211848370618
+weight_decay = 0.00014845961427790733
 
 [model]
 arch_type = "plain"
@@ -29,9 +30,16 @@ arch_type = "plain"
 [model.backbone]
 type = "BMoE"
 n_blocks = 3
-d_block = 512
-dropout = 0.4053237151619724
+d_block = 768
+dropout = 0.06291297723234344
 d_block_per_expert = 64
 default_num_samples = 10
-tau = 2.1947313674090383
+tau = 2.935833013080991
 gating_type = "bayesian"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 8
+
+[bins]
+n_bins = 52

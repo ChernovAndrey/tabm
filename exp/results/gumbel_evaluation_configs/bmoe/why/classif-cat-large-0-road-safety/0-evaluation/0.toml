@@ -15,23 +15,24 @@ return_average = false
 
 [data]
 cache = true
-path = "data/classif-num-large-0-jannis"
+path = "data/classif-cat-large-0-road-safety"
 num_policy = "noisy-quantile"
+cat_policy = "ordinal"
 
 [optimizer]
 type = "AdamW"
-lr = 0.0007785452412752401
-weight_decay = 0.0
+lr = 0.008153176414748465
+weight_decay = 0.0010799586311815749
 
 [model]
 arch_type = "plain"
 
 [model.backbone]
 type = "BMoE"
-n_blocks = 3
-d_block = 512
-dropout = 0.4053237151619724
+n_blocks = 5
+d_block = 128
+dropout = 0.15864073702361328
 d_block_per_expert = 64
 default_num_samples = 10
-tau = 2.1947313674090383
+tau = 2.016994609781197
 gating_type = "bayesian"

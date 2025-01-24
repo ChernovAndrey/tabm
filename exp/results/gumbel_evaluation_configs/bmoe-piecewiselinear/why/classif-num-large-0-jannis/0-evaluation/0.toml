@@ -19,8 +19,9 @@ path = "data/classif-num-large-0-jannis"
 num_policy = "noisy-quantile"
 
 [optimizer]
-type = "Adam"
-lr = 0.0008117124017694301
+type = "AdamW"
+lr = 0.0010267557957905902
+weight_decay = 0.010261223553805855
 
 [model]
 arch_type = "plain"
@@ -28,17 +29,16 @@ arch_type = "plain"
 [model.backbone]
 type = "BMoE"
 n_blocks = 3
-d_block = 640
-dropout = 0.0
-d_block_per_expert = 64
-gating_prior_std = 0.4029705480055287
-kl_factor = 0.00860131621199437
+d_block = 832
+dropout = 0.18722364641036723
+d_block_per_expert = 32
 default_num_samples = 10
+tau = 2.0109574454397174
 gating_type = "bayesian"
 
 [model.num_embeddings]
 type = "PiecewiseLinearEmbeddings"
-d_embedding = 24
+d_embedding = 8
 
 [bins]
-n_bins = 16
+n_bins = 95
