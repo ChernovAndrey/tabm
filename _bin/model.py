@@ -489,6 +489,7 @@ def main(
         for part in parts:
             while eval_batch_size:
                 try:
+                    cat_dim = 0 if return_average else 1
                     head_predictions[part] = (
                         torch.cat(
                             [
@@ -497,7 +498,7 @@ def main(
                                 for idx in torch.arange(
                                 dataset.size(part), device=device
                             ).split(eval_batch_size)
-                            ]
+                            ], dim=cat_dim
                         )
                         .cpu()
                         .numpy()
