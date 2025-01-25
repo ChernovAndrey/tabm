@@ -1,0 +1,44 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+n_bayesian_ensembles = [
+    1,
+    5,
+    10,
+    100,
+]
+num_samples = 100
+return_average = false
+
+[data]
+cache = true
+path = "data/regression-num-medium-0-fifa"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.0004110218087657779
+weight_decay = 0.0
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 2
+d_block = 640
+dropout = 0.0
+d_block_per_expert = 64
+default_num_samples = 10
+tau = 1.3616276578171096
+gating_type = "bayesian"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 20
+
+[bins]
+n_bins = 100

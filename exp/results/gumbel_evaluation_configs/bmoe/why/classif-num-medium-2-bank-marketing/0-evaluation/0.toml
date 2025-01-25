@@ -1,0 +1,37 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+n_bayesian_ensembles = [
+    1,
+    5,
+    10,
+    100,
+]
+num_samples = 100
+return_average = false
+
+[data]
+cache = true
+path = "data/classif-num-medium-2-bank-marketing"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.00544712685860571
+weight_decay = 0.005983679276999912
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 2
+d_block = 512
+dropout = 0.0
+d_block_per_expert = 32
+default_num_samples = 10
+tau = 2.6704794287791573
+gating_type = "bayesian"
