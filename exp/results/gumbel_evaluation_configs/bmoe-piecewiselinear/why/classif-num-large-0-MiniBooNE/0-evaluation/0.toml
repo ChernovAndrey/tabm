@@ -1,0 +1,44 @@
+seed = 0
+batch_size = 512
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+n_bayesian_ensembles = [
+    1,
+    5,
+    10,
+    100,
+]
+num_samples = 100
+return_average = false
+
+[data]
+cache = true
+path = "data/classif-num-large-0-MiniBooNE"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.00037378851162014345
+weight_decay = 0.003768535793692449
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 2
+d_block = 832
+dropout = 0.22727533751658383
+d_block_per_expert = 64
+default_num_samples = 10
+tau = 2.8483918688098697
+gating_type = "bayesian"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 24
+
+[bins]
+n_bins = 76
