@@ -1,0 +1,29 @@
+seed = 0
+batch_size = 1024
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/microsoft"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.00032355254490361735
+weight_decay = 0.05585538361837782
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 1
+d_block = 768
+dropout = 0.4921367760661769
+d_block_per_expert = 32
+gating_prior_std = 1.0
+kl_factor = 0.01
+gating_type = "standard"

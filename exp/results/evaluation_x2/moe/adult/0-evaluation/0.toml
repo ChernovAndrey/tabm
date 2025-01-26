@@ -1,0 +1,30 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/adult"
+num_policy = "noisy-quantile"
+cat_policy = "ordinal"
+
+[optimizer]
+type = "AdamW"
+lr = 0.000457262980751786
+weight_decay = 0.0
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 2
+d_block = 1152
+dropout = 0.2833007271032876
+d_block_per_expert = 64
+gating_prior_std = 1.0
+kl_factor = 0.01
+gating_type = "standard"
