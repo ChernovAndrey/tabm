@@ -1,0 +1,29 @@
+seed = 0
+batch_size = 32
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/classif-num-medium-0-phoneme"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "Adam"
+lr = 0.0018493122144248066
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 4
+d_block = 576
+dropout = 0.0
+d_block_per_expert = 64
+gating_prior_std = 0.1853591407885914
+kl_factor = 0.022620840703886227
+default_num_samples = 5
+gating_type = "standard"

@@ -1,0 +1,36 @@
+seed = 0
+batch_size = 128
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/regression-num-medium-2-isolet"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.0006084499395989075
+weight_decay = 0.0
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 5
+d_block = 896
+dropout = 0.0
+d_block_per_expert = 64
+gating_prior_std = 1.0
+kl_factor = 0.01
+gating_type = "standard"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 16
+
+[bins]
+n_bins = 62

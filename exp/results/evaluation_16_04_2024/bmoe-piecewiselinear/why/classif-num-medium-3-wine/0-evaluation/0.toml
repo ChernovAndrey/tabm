@@ -1,0 +1,36 @@
+seed = 0
+batch_size = 32
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/classif-num-medium-3-wine"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "Adam"
+lr = 0.0003005245654253664
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 3
+d_block = 128
+dropout = 0.0
+d_block_per_expert = 64
+gating_prior_std = 0.4554257787027345
+kl_factor = 0.019161038894073713
+default_num_samples = 5
+gating_type = "standard"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 16
+
+[bins]
+n_bins = 31

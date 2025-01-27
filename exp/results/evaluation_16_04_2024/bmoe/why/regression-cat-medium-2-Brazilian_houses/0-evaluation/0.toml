@@ -1,0 +1,30 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/regression-cat-medium-2-Brazilian_houses"
+num_policy = "noisy-quantile"
+cat_policy = "ordinal"
+
+[optimizer]
+type = "Adam"
+lr = 0.0018463697185047707
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 1
+d_block = 320
+dropout = 0.0
+d_block_per_expert = 32
+gating_prior_std = 0.10052824191900386
+kl_factor = 0.6020078293264044
+default_num_samples = 5
+gating_type = "standard"

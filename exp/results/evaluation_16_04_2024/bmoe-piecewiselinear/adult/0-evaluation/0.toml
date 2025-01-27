@@ -1,0 +1,37 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/adult"
+num_policy = "noisy-quantile"
+cat_policy = "ordinal"
+
+[optimizer]
+type = "Adam"
+lr = 0.007601920213697013
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 5
+d_block = 320
+dropout = 0.0
+d_block_per_expert = 64
+gating_prior_std = 0.4703363473139591
+kl_factor = 0.02096745616223785
+default_num_samples = 5
+gating_type = "standard"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 12
+
+[bins]
+n_bins = 120

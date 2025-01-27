@@ -1,0 +1,29 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/regression-num-medium-1-fifa"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "Adam"
+lr = 0.0004104447920067758
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 6
+d_block = 576
+dropout = 0.0
+d_block_per_expert = 64
+gating_prior_std = 0.3934674383280496
+kl_factor = 0.6330114756727431
+default_num_samples = 5
+gating_type = "standard"

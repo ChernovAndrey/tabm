@@ -1,0 +1,29 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/regression-cat-medium-0-house_sales"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "Adam"
+lr = 0.0018311682009057285
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 6
+d_block = 448
+dropout = 0.0
+d_block_per_expert = 64
+gating_prior_std = 0.6656168388719728
+kl_factor = 0.031815565887473266
+default_num_samples = 5
+gating_type = "standard"
