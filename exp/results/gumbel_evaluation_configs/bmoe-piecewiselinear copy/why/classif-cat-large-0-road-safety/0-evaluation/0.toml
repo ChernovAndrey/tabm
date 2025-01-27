@@ -1,0 +1,45 @@
+seed = 0
+batch_size = 512
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+n_bayesian_ensembles = [
+    1,
+    5,
+    10,
+    100,
+]
+num_samples = 100
+return_average = false
+
+[data]
+cache = true
+path = "data/classif-cat-large-0-road-safety"
+num_policy = "noisy-quantile"
+cat_policy = "ordinal"
+
+[optimizer]
+type = "AdamW"
+lr = 0.0003648913338981285
+weight_decay = 0.0
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 3
+d_block = 512
+dropout = 0.18849023640015175
+d_block_per_expert = 64
+default_num_samples = 10
+tau = 1.7584797013772708
+gating_type = "bayesian"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 24
+
+[bins]
+n_bins = 15

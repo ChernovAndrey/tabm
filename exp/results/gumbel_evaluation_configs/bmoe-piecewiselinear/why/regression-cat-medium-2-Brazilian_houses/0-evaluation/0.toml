@@ -21,20 +21,20 @@ cat_policy = "ordinal"
 
 [optimizer]
 type = "AdamW"
-lr = 0.00036797048950816676
-weight_decay = 0.0073674744987692565
+lr = 0.0008726972989019021
+weight_decay = 0.00010623587176306961
 
 [model]
 arch_type = "plain"
 
 [model.backbone]
 type = "BMoE"
-n_blocks = 2
-d_block = 192
+n_blocks = 1
+d_block = 512
 dropout = 0.0
 d_block_per_expert = 64
 default_num_samples = 10
-tau = 2.7993226346791484
+tau = 0.6017632671019437
 gating_type = "bayesian"
 
 [model.num_embeddings]
@@ -42,4 +42,4 @@ type = "PiecewiseLinearEmbeddings"
 d_embedding = 28
 
 [bins]
-n_bins = 61
+n_bins = 72

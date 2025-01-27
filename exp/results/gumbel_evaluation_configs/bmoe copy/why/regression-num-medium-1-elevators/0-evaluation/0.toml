@@ -1,0 +1,37 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+n_bayesian_ensembles = [
+    1,
+    5,
+    10,
+    100,
+]
+num_samples = 100
+return_average = false
+
+[data]
+cache = true
+path = "data/regression-num-medium-1-elevators"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.002805410622273952
+weight_decay = 0.0009461637946158301
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 1
+d_block = 704
+dropout = 0.3834609673795066
+d_block_per_expert = 32
+default_num_samples = 10
+tau = 2.851502338315497
+gating_type = "bayesian"

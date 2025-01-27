@@ -20,25 +20,25 @@ num_policy = "noisy-quantile"
 
 [optimizer]
 type = "AdamW"
-lr = 0.0004110218087657779
-weight_decay = 0.0
+lr = 0.0007410474031929559
+weight_decay = 0.017444634909089166
 
 [model]
 arch_type = "plain"
 
 [model.backbone]
 type = "BMoE"
-n_blocks = 2
-d_block = 640
-dropout = 0.0
-d_block_per_expert = 64
+n_blocks = 3
+d_block = 1216
+dropout = 0.06194296984508829
+d_block_per_expert = 32
 default_num_samples = 10
-tau = 1.3616276578171096
+tau = 2.03550904174294
 gating_type = "bayesian"
 
 [model.num_embeddings]
 type = "PiecewiseLinearEmbeddings"
-d_embedding = 20
+d_embedding = 12
 
 [bins]
-n_bins = 100
+n_bins = 108
