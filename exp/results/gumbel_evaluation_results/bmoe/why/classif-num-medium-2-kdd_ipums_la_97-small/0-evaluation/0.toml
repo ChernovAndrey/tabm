@@ -1,0 +1,37 @@
+seed = 0
+batch_size = 64
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+n_bayesian_ensembles = [
+    1,
+    5,
+    10,
+    100,
+]
+num_samples = 100
+return_average = false
+
+[data]
+cache = true
+path = "data/classif-num-medium-2-kdd_ipums_la_97-small"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.00594418351670155
+weight_decay = 0.0
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 6
+d_block = 704
+dropout = 0.149577276855689
+d_block_per_expert = 32
+default_num_samples = 10
+tau = 2.5997069572172866
+gating_type = "bayesian"

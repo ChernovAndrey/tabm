@@ -1,0 +1,37 @@
+seed = 0
+batch_size = 32
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+n_bayesian_ensembles = [
+    1,
+    5,
+    10,
+    100,
+]
+num_samples = 100
+return_average = false
+
+[data]
+cache = true
+path = "data/classif-num-medium-3-phoneme"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.0025958055673745714
+weight_decay = 0.0014579878003998631
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 4
+d_block = 960
+dropout = 0.0
+d_block_per_expert = 64
+default_num_samples = 10
+tau = 2.7207089198056638
+gating_type = "bayesian"
