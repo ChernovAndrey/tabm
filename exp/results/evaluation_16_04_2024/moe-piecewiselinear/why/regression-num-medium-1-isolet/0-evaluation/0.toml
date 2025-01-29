@@ -12,7 +12,7 @@ num_policy = "noisy-quantile"
 
 [optimizer]
 type = "AdamW"
-lr = 0.000451052001243252
+lr = 0.0006198088141446426
 weight_decay = 0.0
 
 [model]
@@ -20,8 +20,8 @@ arch_type = "plain"
 
 [model.backbone]
 type = "BMoE"
-n_blocks = 4
-d_block = 768
+n_blocks = 5
+d_block = 576
 dropout = 0.0
 d_block_per_expert = 32
 gating_prior_std = 1.0
@@ -33,4 +33,4 @@ type = "PiecewiseLinearEmbeddings"
 d_embedding = 28
 
 [bins]
-n_bins = 39
+n_bins = 23
