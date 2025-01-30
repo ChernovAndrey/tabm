@@ -395,7 +395,7 @@ def main(
     early_stopping = delu.tools.EarlyStopping(config['patience'], mode='max')
     parameter_statistics = config.get('parameter_statistics', config['seed'] == 1)
     training_log = []
-    writer = torch.utils.tensorboard.SummaryWriter(output)  # type: ignore[code]
+    # writer = torch.utils.tensorboard.SummaryWriter(output)  # type: ignore[code]
 
     # Only bfloat16 was tested as amp_dtype.
     # However, float16 is supported as a fallback.
