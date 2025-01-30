@@ -540,14 +540,16 @@ def find_files_with_pattern(base_path, pattern="0-evaluation/0.toml"):
 
 
 # Example usage:
-base_directories = ["exp/results/evaluation_results_16_04_2024/moe",
-                    "exp/results/evaluation_results_16_04_2024/moe-piecewiselinear",
-                    "exp/results/gumbel_evaluation_results/bmoe",
-                    "exp/results/gumbel_evaluation_results/bmoe-piecewiselinear",
-                    "exp/mlp/",
-                    "exp/mlp-piecewiselinear/",
+base_directories = [
+    "exp/results/gumbel_evaluation_results/bmoe",
+    "exp/results/gumbel_evaluation_results/bmoe-piecewiselinear",
 
-                    ]  # Change this to your starting directory
+    "exp/results/evaluation_results_16_04_2024/moe",
+    "exp/results/evaluation_results_16_04_2024/moe-piecewiselinear",
+    "exp/mlp/",
+    "exp/mlp-piecewiselinear/",
+
+]  # Change this to your starting directory
 matching_files = []
 for dir in base_directories:
     matching_files += find_files_with_pattern(dir)
@@ -567,15 +569,26 @@ def find_files_with_pattern(base_path, pattern="0-evaluation/0.toml"):
     search_pattern = os.path.join(base_path, "**", pattern)
     return glob.glob(search_pattern, recursive=True)
 
+
+num_samples = [5, 10, 100]
 n = 15
 # import numpy as np
-res = {}
+res = {'1': {}, '5': {}, '10': {}, '100': {}}
 # Print found files
-for file in final_files[:5]:
+for file in final_files:
     exec_time = []
-    for i in range(15):
+    for i in range(n):
         exec_time.append(main(file, num_samples=None))
-    res[file] = exec_time
+    res['1'][file] = exec_time
+
+for n in num_samples:
+    print(f'current number of samples:{n}')
+    for file in final_files:
+        if 'bmoe' in file:
+            exec_time = []
+            for i in range(n):
+                exec_time.append(main(file, num_samples=n))
+            res[str(n)][file] = exec_time
     # print(file.split('/'))
 # print(res)
 # Save to a pickle file
