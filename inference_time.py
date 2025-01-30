@@ -541,13 +541,14 @@ def find_files_with_pattern(base_path, pattern="0-evaluation/0.toml"):
 
 # Example usage:
 base_directories = [
-    "exp/results/gumbel_evaluation_results/bmoe",
-    "exp/results/gumbel_evaluation_results/bmoe-piecewiselinear",
+    "exp/results/gumbel_evaluation_configs/bmoe",
+    "exp/results/gumbel_evaluation_configs/bmoe-piecewiselinear",
 
-    "exp/results/evaluation_results_16_04_2024/moe",
-    "exp/results/evaluation_results_16_04_2024/moe-piecewiselinear",
-    "exp/mlp/",
-    "exp/mlp-piecewiselinear/",
+    "exp/results/evaluation_16_04_2024/moe",
+    "exp/results/evaluation_16_04_2024/moe-piecewiselinear",
+
+    # "exp/mlp/",
+    # "exp/mlp-piecewiselinear/",
 
 ]  # Change this to your starting directory
 matching_files = []
@@ -566,7 +567,8 @@ for f in matching_files:
 import glob
 import os
 
-
+print('number of files:')
+print(len(final_files))
 def find_files_with_pattern(base_path, pattern="0-evaluation/0.toml"):
     search_pattern = os.path.join(base_path, "**", pattern)
     return glob.glob(search_pattern, recursive=True)
@@ -594,5 +596,5 @@ for n in num_samples:
     # print(file.split('/'))
 # print(res)
 # Save to a pickle file
-with open("execution_time.pkl", "wb") as file:
+with open("execution_time_all.pkl", "wb") as file:
     pickle.dump(res, file)
