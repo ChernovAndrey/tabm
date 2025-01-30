@@ -556,8 +556,10 @@ for dir in base_directories:
 
 final_files = []
 for f in matching_files:
-    if 'tabred' not in final_files:
+    if 'tabred' not in f:
         final_files.append(f)
+    else:
+        print('excluded:', f)
 
 # Print found files
 
