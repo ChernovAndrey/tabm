@@ -359,7 +359,7 @@ class BMoE(nn.Module):
             kl_factor: float = 1e-2,
             gating_prior_std: float = 1.0,
             d_block_per_expert: None | int = None,
-            default_num_samples: int = 5,
+            default_num_samples: int = 10,
             tau: float = 1.0,
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
@@ -475,356 +475,431 @@ class BMoE(nn.Module):
             assert False, f'The gating type {self.gating_type} is not supported'
 
 
-class MoIEBlock(nn.Module):
-    """
-    One "layer" containing K linear experts of shape (in_dim -> out_dim).
-    In forward pass, we:
-      1) Pass x through each expert -> Z^{(k)}  [size (B, out_dim)]
-      2) Compute alpha * Z^{(k)} and sum across k -> Z_combined
-      3) Optionally apply an activation (e.g. ReLU).
-    """
+class DeepBMoE(BMoE):
+    def __init__(self, *, n_blocks: int, d_block: int, dropout: float, gating_type: str, d_in: None | int = None,
+                 d_out: None | int = None, activation: str = 'ReLU', num_experts: None | int = None,
+                 kl_factor: float = 1e-2, gating_prior_std: float = 1.0, d_block_per_expert: None | int = None,
+                 default_num_samples: int = 10, tau: float = 1.0) -> None:
+        super().__init__(n_blocks=n_blocks, d_block=d_block, dropout=dropout, gating_type=gating_type, d_in=d_in,
+                         d_out=d_out, activation=activation, num_experts=num_experts, kl_factor=kl_factor,
+                         gating_prior_std=gating_prior_std, d_block_per_expert=d_block_per_expert,
+                         default_num_samples=default_num_samples, tau=tau)
 
-    def __init__(self, in_dim, out_dim, num_experts, activation=True):
-        super().__init__()
-        self.num_experts = num_experts
-        self.activation = activation
+        d_first = d_block // num_experts if d_in is None else d_in
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if self.gating_type == 'standard':
+            self.gate = nn.ModuleList(
+                [
+                    nn.Sequential(
+                        nn.Linear(d_first if i == 0 else d_block, num_experts),
+                        nn.Softmax(dim=-1)
+                    )
+                    for i in range(n_blocks + 1)  # one more for final layer
+                ]
+            )
+        elif self.gating_type == 'bayesian':
 
-        # Create K linear experts as a ModuleList
-        self.experts = nn.ModuleList([
-            nn.Linear(in_dim, out_dim) for _ in range(num_experts)
-        ])
+            self.gate = nn.ModuleList(
+                [
+                    GumbelGatingNetwork(d_first if i == 0 else d_block, num_experts, tau=tau, device=device)
+                    for i in range(n_blocks + 1)  # one more for final layer
+                ]
+            )
+        else:
+            raise ValueError(f'The gating type "{self.gating_type}" is not supported.')
 
-        if self.activation:
-            self.relu = nn.ReLU()
+    def apply_gate(self, x: Tensor, gate: nn.Module, num_samples: int) -> Tensor:
+        if self.training or num_samples < 2 or self.gating_type == 'standard':
+            # [batch_size, num_experts] -> [num_experts, batch_size]
+            alpha = gate(x, num_samples=num_samples) if self.gating_type == 'bayesian' \
+                else self.gate(x)
+            alpha = alpha.transpose(-1, -2)
+        else:
+            # [num_samples, batch_size, num_experts] -> [num_samples, num_experts, batch_size]
+            alpha = self.gate(x, num_samples=num_samples).permute(0, 2, 1)
+        return alpha
 
-    def forward(self, x, alpha):
+    def forward(self, x: Tensor, num_samples: None | int = None, return_average: bool = True) -> Tensor:
         """
-        Args:
-            x: shape (B, in_dim)
-            alpha: shape (B, K) gating coefficients (one row per sample).
-        Returns:
-            combined: shape (B, out_dim)
+        If self.training is True:
+           - Sample one alpha from gate (as usual),
+           - Optionally store statistics,
+           - Compute and return the weighted sum of expert outputs.
+        If self.training is False (eval mode):
+           - Sample 10 alphas from gate,
+           - Compute expert outputs once (they're standard),
+           - Average the weighted sums over those 10 alpha samples.
         """
-        B = x.size(0)  # batch size
+        assert return_average == True
+        # print(f'num samples:{num_samples}')
+        # TODO: improve code clarity
+        if self.training or self.gating_type == 'standard':
+            num_samples = 1
+        elif num_samples is None:
+            num_samples = self.default_num_samples
 
-        # 1) For each expert k, compute Z^{(k)} = x W^{(k)} + b^{(k)}.
-        #    We'll stack them to shape (K, B, out_dim) for convenience.
-        expert_outputs = []
-        for k in range(self.num_experts):
-            Z_k = self.experts[k](x)  # shape (B, out_dim)
-            expert_outputs.append(Z_k)
-        # Stack => shape (K, B, out_dim)
-        expert_outputs = torch.stack(expert_outputs, dim=0)
+        for i in range(self.n_blocks + 1):
+            alpha = self.apply_gate(x, self.gate[i], num_samples)
+            x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])
 
-        # 2) Combine with alpha: Z_combined(i,:) = sum_k alpha[i,k] * Z_k(i,:)
-        #    We can do this in a batched manner:
-        #    Make alpha shape (B, K, 1) => then broadcast multiply with
-        #    expert_outputs (K, B, out_dim) after transposing or rearranging.
-        #    Easiest is to transpose expert_outputs to (B, K, out_dim) first.
-        expert_outputs = expert_outputs.transpose(0, 1)  # => (B, K, out_dim)
+            if self.training or num_samples < 2 or self.gating_type == 'standard':
+                x = torch.sum(alpha.unsqueeze(-1) * x, dim=0)
+            else:
+                # EVAL MODE (Bayesian ensemble)
+                weighted_expert_outputs = alpha.unsqueeze(-1) * x.unsqueeze(0)
 
-        # alpha: (B, K) => alpha.unsqueeze(-1): (B, K, 1)
-        alpha_3d = alpha.unsqueeze(-1)  # => (B, K, 1)
+                # 4) Sum over experts => [10, batch_size, output_dim]
+                weighted_sums = torch.sum(weighted_expert_outputs, dim=1)
+                x = weighted_sums.mean(dim=0)
 
-        # Multiply elementwise and sum over K => (B, out_dim)
-        combined = (expert_outputs * alpha_3d).sum(dim=1)  # (B, out_dim)
+            if i < self.n_blocks:
+                x = self.activation(x)
+                if self.dropout is not None:
+                    x = self.dropout(x)
 
-        # 3) Optional activation
-        if self.activation:
-            combined = self.relu(combined)
-        return combined
+        return x
 
+    # class MoIEBlock(nn.Module):
+    #     """
+    #     One "layer" containing K linear experts of shape (in_dim -> out_dim).
+    #     In forward pass, we:
+    #       1) Pass x through each expert -> Z^{(k)}  [size (B, out_dim)]
+    #       2) Compute alpha * Z^{(k)} and sum across k -> Z_combined
+    #       3) Optionally apply an activation (e.g. ReLU).
+    #     """
+    #
+    #     def __init__(self, in_dim, out_dim, num_experts, activation=True):
+    #         super().__init__()
+    #         self.num_experts = num_experts
+    #         self.activation = activation
+    #
+    #         # Create K linear experts as a ModuleList
+    #         self.experts = nn.ModuleList([
+    #             nn.Linear(in_dim, out_dim) for _ in range(num_experts)
+    #         ])
+    #
+    #         if self.activation:
+    #             self.relu = nn.ReLU()
+    #
+    #     def forward(self, x, alpha):
+    #         """
+    #         Args:
+    #             x: shape (B, in_dim)
+    #             alpha: shape (B, K) gating coefficients (one row per sample).
+    #         Returns:
+    #             combined: shape (B, out_dim)
+    #         """
+    #         B = x.size(0)  # batch size
+    #
+    #         # 1) For each expert k, compute Z^{(k)} = x W^{(k)} + b^{(k)}.
+    #         #    We'll stack them to shape (K, B, out_dim) for convenience.
+    #         expert_outputs = []
+    #         for k in range(self.num_experts):
+    #             Z_k = self.experts[k](x)  # shape (B, out_dim)
+    #             expert_outputs.append(Z_k)
+    #         # Stack => shape (K, B, out_dim)
+    #         expert_outputs = torch.stack(expert_outputs, dim=0)
+    #
+    #         # 2) Combine with alpha: Z_combined(i,:) = sum_k alpha[i,k] * Z_k(i,:)
+    #         #    We can do this in a batched manner:
+    #         #    Make alpha shape (B, K, 1) => then broadcast multiply with
+    #         #    expert_outputs (K, B, out_dim) after transposing or rearranging.
+    #         #    Easiest is to transpose expert_outputs to (B, K, out_dim) first.
+    #         expert_outputs = expert_outputs.transpose(0, 1)  # => (B, K, out_dim)
+    #
+    #         # alpha: (B, K) => alpha.unsqueeze(-1): (B, K, 1)
+    #         alpha_3d = alpha.unsqueeze(-1)  # => (B, K, 1)
+    #
+    #         # Multiply elementwise and sum over K => (B, out_dim)
+    #         combined = (expert_outputs * alpha_3d).sum(dim=1)  # (B, out_dim)
+    #
+    #         # 3) Optional activation
+    #         if self.activation:
+    #             combined = self.relu(combined)
+    #         return combined
 
-# class BMoIE(nn.Module):
-#     def __init__(
-#             self,
-#             *,
-#             d_in: None | int = None,
-#             d_out: None | int = None,
-#             n_blocks: int,
-#             d_block: int,
-#             dropout: float,
-#             activation: str = 'ReLU',
-#             # activation: str = 'GELU',
-#             num_experts: int,
-#             gating_type: str,  # ['standard' or 'bayesian']
-#             kl_factor: int,
-#             gating_prior_std: float,
-#             device: str = 'cpu',  # TODO: check whether is it necessary to pass
-#     ) -> None:
-#         assert gating_type in ['standard', 'bayesian']
-#         super().__init__()
-#         self.device = device
-#         self.num_experts = num_experts
-#         self.gating_type = gating_type
-#         self.kl_factor = kl_factor
-#         print(f'gating type: {self.gating_type}')
-#         d_first = d_block // num_experts if d_in is None else d_in
-#
-#         self.stat_alpha_sum = None
-#         # Gating network
-#         self.gating_type = gating_type
-#         if self.gating_type == 'standard':
-#             self.gate = nn.Sequential(
-#                 nn.Linear(d_first, num_experts),
-#                 nn.Softmax(dim=-1)
-#             )
-#
-#             self.blocks = nn.ModuleList(
-#                 [
-#                     nn.Sequential(
-#                         MoIEBlock(d_first if i == 0 else d_block // num_experts, d_block // num_experts, num_experts,
-#                                   activation=False),
-#                         getattr(nn, activation)(),
-#                         nn.Dropout(dropout)
-#                     )
-#                     for i in range(n_blocks)
-#                 ]
-#             )
-#         elif self.gating_type == 'bayesian':
-#             self.gate = BayesianGatingNetwork(
-#                 in_features=d_first,
-#                 num_experts=num_experts,
-#                 prior_std=gating_prior_std,
-#                 device=self.device,
-#             )
-#
-#             self.blocks = nn.ModuleList(
-#                 [
-#                     nn.Sequential(
-#                         MoIEBlock(d_first if i == 0 else d_block // num_experts, d_block // num_experts, num_experts,
-#                                   activation=False),
-#                         getattr(nn, activation)()
-#                     )
-#                     for i in range(n_blocks)
-#                 ]
-#             )
-#         else:
-#             assert False, f'The gating type {self.gating_type} is not supported'
-#
-#         self.output = None if d_out is None else MoIEBlock(d_block // num_experts, d_out, num_experts, activation=False)
-#         print(f'd_out:{d_out}')
-#         print(self.blocks)
-#         print('output:')
-#         print(self.output)
-#
-#         self.device = device
-#         self.gating_type = gating_type
-#         self.stat_alpha_sum = None
-#
-#     def forward(self, x):
-#         """
-#         x shape: (B, input_dim)
-#         alpha shape: (B, K)
-#
-#         For simplicity, we'll assume we use the *same* alpha at each layer.
-#         If you want different gating per layer, you'd have multiple gating nets
-#         or a more advanced design.
-#         """
-#         alpha = self.gate(x)  # shape (B, K)
-#
-#         # store for later analysis
-#         if self.training:
-#             if self.stat_alpha_sum is None:
-#                 self.stat_alpha_sum = alpha.sum(axis=0).detach().cpu().numpy()
-#             else:
-#                 self.stat_alpha_sum += alpha.sum(axis=0).detach().cpu().numpy()
-#         # if np.random.random() < 0.01:
-#         #     print(f'alphas:{self.stat_alpha_mean}')
-#
-#         # Pass through 1st MoE block
-#         for block in self.blocks:
-#             x = block[0](x, alpha)  # Pass both arguments to the first block
-#             for i in range(1, len(block)):
-#                 x = block[i](x)  # Apply the activation and dropout
-#         if self.output is not None:
-#             x = self.output(x, alpha)
-#         return x
-#
-#     # expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
-#     #
-#     # # Weighted sum of expert outputs
-#     # output = torch.sum(alpha.unsqueeze(-1) * expert_outputs, dim=1)
-#     # return output
-#
-#     def get_kl_loss(self):
-#         """
-#         Only gating is Bayesian, so just return gating's KL.
-#         """
-#         if self.gating_type == 'standard':
-#             return torch.tensor(0.0).to(self.device)
-#         elif self.gating_type == 'bayesian':
-#             return self.kl_factor * self.gate.kl_loss()
-#         else:
-#             assert False, f'The gating type {self.gating_type} is not supported'
+    # class BMoIE(nn.Module):
+    #     def __init__(
+    #             self,
+    #             *,
+    #             d_in: None | int = None,
+    #             d_out: None | int = None,
+    #             n_blocks: int,
+    #             d_block: int,
+    #             dropout: float,
+    #             activation: str = 'ReLU',
+    #             # activation: str = 'GELU',
+    #             num_experts: int,
+    #             gating_type: str,  # ['standard' or 'bayesian']
+    #             kl_factor: int,
+    #             gating_prior_std: float,
+    #             device: str = 'cpu',  # TODO: check whether is it necessary to pass
+    #     ) -> None:
+    #         assert gating_type in ['standard', 'bayesian']
+    #         super().__init__()
+    #         self.device = device
+    #         self.num_experts = num_experts
+    #         self.gating_type = gating_type
+    #         self.kl_factor = kl_factor
+    #         print(f'gating type: {self.gating_type}')
+    #         d_first = d_block // num_experts if d_in is None else d_in
+    #
+    #         self.stat_alpha_sum = None
+    #         # Gating network
+    #         self.gating_type = gating_type
+    #         if self.gating_type == 'standard':
+    #             self.gate = nn.Sequential(
+    #                 nn.Linear(d_first, num_experts),
+    #                 nn.Softmax(dim=-1)
+    #             )
+    #
+    #             self.blocks = nn.ModuleList(
+    #                 [
+    #                     nn.Sequential(
+    #                         MoIEBlock(d_first if i == 0 else d_block // num_experts, d_block // num_experts, num_experts,
+    #                                   activation=False),
+    #                         getattr(nn, activation)(),
+    #                         nn.Dropout(dropout)
+    #                     )
+    #                     for i in range(n_blocks)
+    #                 ]
+    #             )
+    #         elif self.gating_type == 'bayesian':
+    #             self.gate = BayesianGatingNetwork(
+    #                 in_features=d_first,
+    #                 num_experts=num_experts,
+    #                 prior_std=gating_prior_std,
+    #                 device=self.device,
+    #             )
+    #
+    #             self.blocks = nn.ModuleList(
+    #                 [
+    #                     nn.Sequential(
+    #                         MoIEBlock(d_first if i == 0 else d_block // num_experts, d_block // num_experts, num_experts,
+    #                                   activation=False),
+    #                         getattr(nn, activation)()
+    #                     )
+    #                     for i in range(n_blocks)
+    #                 ]
+    #             )
+    #         else:
+    #             assert False, f'The gating type {self.gating_type} is not supported'
+    #
+    #         self.output = None if d_out is None else MoIEBlock(d_block // num_experts, d_out, num_experts, activation=False)
+    #         print(f'd_out:{d_out}')
+    #         print(self.blocks)
+    #         print('output:')
+    #         print(self.output)
+    #
+    #         self.device = device
+    #         self.gating_type = gating_type
+    #         self.stat_alpha_sum = None
+    #
+    #     def forward(self, x):
+    #         """
+    #         x shape: (B, input_dim)
+    #         alpha shape: (B, K)
+    #
+    #         For simplicity, we'll assume we use the *same* alpha at each layer.
+    #         If you want different gating per layer, you'd have multiple gating nets
+    #         or a more advanced design.
+    #         """
+    #         alpha = self.gate(x)  # shape (B, K)
+    #
+    #         # store for later analysis
+    #         if self.training:
+    #             if self.stat_alpha_sum is None:
+    #                 self.stat_alpha_sum = alpha.sum(axis=0).detach().cpu().numpy()
+    #             else:
+    #                 self.stat_alpha_sum += alpha.sum(axis=0).detach().cpu().numpy()
+    #         # if np.random.random() < 0.01:
+    #         #     print(f'alphas:{self.stat_alpha_mean}')
+    #
+    #         # Pass through 1st MoE block
+    #         for block in self.blocks:
+    #             x = block[0](x, alpha)  # Pass both arguments to the first block
+    #             for i in range(1, len(block)):
+    #                 x = block[i](x)  # Apply the activation and dropout
+    #         if self.output is not None:
+    #             x = self.output(x, alpha)
+    #         return x
+    #
+    #     # expert_outputs = torch.stack([expert(x) for expert in self.experts], dim=1)
+    #     #
+    #     # # Weighted sum of expert outputs
+    #     # output = torch.sum(alpha.unsqueeze(-1) * expert_outputs, dim=1)
+    #     # return output
+    #
+    #     def get_kl_loss(self):
+    #         """
+    #         Only gating is Bayesian, so just return gating's KL.
+    #         """
+    #         if self.gating_type == 'standard':
+    #             return torch.tensor(0.0).to(self.device)
+    #         elif self.gating_type == 'bayesian':
+    #             return self.kl_factor * self.gate.kl_loss()
+    #         else:
+    #             assert False, f'The gating type {self.gating_type} is not supported'
 
-
-_CUSTOM_MODULES = {
-    # https://docs.python.org/3/library/stdtypes.html#definition.__name__
-    CustomModule.__name__: CustomModule
-    for CustomModule in [
-        rtdl_num_embeddings.LinearEmbeddings,
-        rtdl_num_embeddings.LinearReLUEmbeddings,
-        rtdl_num_embeddings.PeriodicEmbeddings,
-        PiecewiseLinearEmbeddings,
-        MLP,
-        BMoE,
-    ]
-}
-
-
-def make_module(type: str, *args, **kwargs) -> nn.Module:
-    Module = getattr(nn, type, None)
-    if Module is None:
-        Module = _CUSTOM_MODULES[type]
-    return Module(*args, **kwargs)
-
-
-def get_n_parameters(m: nn.Module):
-    return sum(x.numel() for x in m.parameters() if x.requires_grad)
-
-
-@torch.inference_mode()
-def compute_parameter_stats(module: nn.Module) -> dict[str, dict[str, float]]:
-    stats = {'norm': {}, 'gradnorm': {}, 'gradratio': {}}
-    for name, parameter in module.named_parameters():
-        stats['norm'][name] = parameter.norm().item()
-        if parameter.grad is not None:
-            stats['gradnorm'][name] = parameter.grad.norm().item()
-            # Avoid computing statistics for zero-initialized parameters.
-            if (parameter.abs() > 1e-6).any():
-                stats['gradratio'][name] = (
-                    (parameter.grad.abs() / parameter.abs().clamp_min_(1e-6))
-                    .mean()
-                    .item()
-                )
-    stats['norm']['model'] = (
-        torch.cat([x.flatten() for x in module.parameters()]).norm().item()
-    )
-    stats['gradnorm']['model'] = (
-        torch.cat([x.grad.flatten() for x in module.parameters() if x.grad is not None])
-        .norm()
-        .item()
-    )
-    return stats
-
-
-# ======================================================================================
-# Optimization
-# ======================================================================================
-def default_zero_weight_decay_condition(
-        module_name: str, module: nn.Module, parameter_name: str, parameter: Parameter
-):
-    from rtdl_num_embeddings import _Periodic
-
-    del module_name, parameter
-    return parameter_name.endswith('bias') or isinstance(
-        module,
-        nn.BatchNorm1d
-        | nn.LayerNorm
-        | nn.InstanceNorm1d
-        | rtdl_revisiting_models.LinearEmbeddings
-        | rtdl_num_embeddings.LinearEmbeddings
-        | rtdl_num_embeddings.LinearReLUEmbeddings
-        | _Periodic,
-    )
-
-
-def make_parameter_groups(
-        module: nn.Module,
-        zero_weight_decay_condition=default_zero_weight_decay_condition,
-        custom_groups: None | list[dict[str, Any]] = None,
-) -> list[dict[str, Any]]:
-    if custom_groups is None:
-        custom_groups = []
-    custom_params = frozenset(
-        itertools.chain.from_iterable(group['params'] for group in custom_groups)
-    )
-    assert len(custom_params) == sum(
-        len(group['params']) for group in custom_groups
-    ), 'Parameters in custom_groups must not intersect'
-    zero_wd_params = frozenset(
-        p
-        for mn, m in module.named_modules()
-        for pn, p in m.named_parameters()
-        if p not in custom_params and zero_weight_decay_condition(mn, m, pn, p)
-    )
-    default_group = {
-        'params': [
-            p
-            for p in module.parameters()
-            if p not in custom_params and p not in zero_wd_params
+    _CUSTOM_MODULES = {
+        # https://docs.python.org/3/library/stdtypes.html#definition.__name__
+        CustomModule.__name__: CustomModule
+        for CustomModule in [
+            rtdl_num_embeddings.LinearEmbeddings,
+            rtdl_num_embeddings.LinearReLUEmbeddings,
+            rtdl_num_embeddings.PeriodicEmbeddings,
+            PiecewiseLinearEmbeddings,
+            MLP,
+            BMoE,
         ]
     }
-    return [
-        default_group,
-        {'params': list(zero_wd_params), 'weight_decay': 0.0},
-        *custom_groups,
-    ]
 
+    def make_module(type: str, *args, **kwargs) -> nn.Module:
+        Module = getattr(nn, type, None)
+        if Module is None:
+            Module = _CUSTOM_MODULES[type]
+        return Module(*args, **kwargs)
 
-def make_optimizer(type: str, **kwargs) -> torch.optim.Optimizer:
-    Optimizer = getattr(torch.optim, type)
-    return Optimizer(**kwargs)
+    def get_n_parameters(m: nn.Module):
+        return sum(x.numel() for x in m.parameters() if x.requires_grad)
 
+    @torch.inference_mode()
+    def compute_parameter_stats(module: nn.Module) -> dict[str, dict[str, float]]:
+        stats = {'norm': {}, 'gradnorm': {}, 'gradratio': {}}
+        for name, parameter in module.named_parameters():
+            stats['norm'][name] = parameter.norm().item()
+            if parameter.grad is not None:
+                stats['gradnorm'][name] = parameter.grad.norm().item()
+                # Avoid computing statistics for zero-initialized parameters.
+                if (parameter.abs() > 1e-6).any():
+                    stats['gradratio'][name] = (
+                        (parameter.grad.abs() / parameter.abs().clamp_min_(1e-6))
+                        .mean()
+                        .item()
+                    )
+        stats['norm']['model'] = (
+            torch.cat([x.flatten() for x in module.parameters()]).norm().item()
+        )
+        stats['gradnorm']['model'] = (
+            torch.cat([x.grad.flatten() for x in module.parameters() if x.grad is not None])
+            .norm()
+            .item()
+        )
+        return stats
 
-# ======================================================================================
-# Training
-# ======================================================================================
-def zero_grad_forward_backward(
-        optimizer: torch.optim.Optimizer,
-        step_fn: Callable[[Tensor], Tensor],  # step_fn: batch_idx -> loss
-        get_kl_loss: Callable[[], Tensor],  # zero for every models except Bayesian ones
-        batch_idx: Tensor,
-        chunk_size: int,
-        grad_scaler: None | torch.cuda.amp.GradScaler = None,  # type: ignore[code]
+    # ======================================================================================
+    # Optimization
+    # ======================================================================================
+    def default_zero_weight_decay_condition(
+            module_name: str, module: nn.Module, parameter_name: str, parameter: Parameter
+    ):
+        from rtdl_num_embeddings import _Periodic
 
-) -> tuple[Tensor, Tensor, int]:
-    """
-    This is a standard training step. Additionally, it supports:
+        del module_name, parameter
+        return parameter_name.endswith('bias') or isinstance(
+            module,
+            nn.BatchNorm1d
+            | nn.LayerNorm
+            | nn.InstanceNorm1d
+            | rtdl_revisiting_models.LinearEmbeddings
+            | rtdl_num_embeddings.LinearEmbeddings
+            | rtdl_num_embeddings.LinearReLUEmbeddings
+            | _Periodic,
+        )
 
-    - Training by chunks if the whole batch does not fit into GPU.
-    - Gradient scaling for training in FP16.
-    """
-    backward = (
-        Tensor.backward
-        if grad_scaler is None
-        else lambda x: grad_scaler.scale(x).backward()  # type: ignore[code]
-    )
-    batch_size = len(batch_idx)
-    loss = None
-    while chunk_size != 0:
-        optimizer.zero_grad()
+    def make_parameter_groups(
+            module: nn.Module,
+            zero_weight_decay_condition=default_zero_weight_decay_condition,
+            custom_groups: None | list[dict[str, Any]] = None,
+    ) -> list[dict[str, Any]]:
+        if custom_groups is None:
+            custom_groups = []
+        custom_params = frozenset(
+            itertools.chain.from_iterable(group['params'] for group in custom_groups)
+        )
+        assert len(custom_params) == sum(
+            len(group['params']) for group in custom_groups
+        ), 'Parameters in custom_groups must not intersect'
+        zero_wd_params = frozenset(
+            p
+            for mn, m in module.named_modules()
+            for pn, p in m.named_parameters()
+            if p not in custom_params and zero_weight_decay_condition(mn, m, pn, p)
+        )
+        default_group = {
+            'params': [
+                p
+                for p in module.parameters()
+                if p not in custom_params and p not in zero_wd_params
+            ]
+        }
+        return [
+            default_group,
+            {'params': list(zero_wd_params), 'weight_decay': 0.0},
+            *custom_groups,
+        ]
 
-        try:
-            if batch_size <= chunk_size:
-                # The simple forward-backward.
-                kl_loss = get_kl_loss()
-                loss = step_fn(batch_idx) + kl_loss
-                backward(loss)
-            else:
-                # Forward-backward by chunks.
-                # Mathematically, this is equivalent to the simple forward-backward.
-                # Technically, this implementations uses less memory.
-                loss = None
-                for chunk_idx in batch_idx.split(chunk_size):
-                    chunk_loss = step_fn(chunk_idx)
+    def make_optimizer(type: str, **kwargs) -> torch.optim.Optimizer:
+        Optimizer = getattr(torch.optim, type)
+        return Optimizer(**kwargs)
+
+    # ======================================================================================
+    # Training
+    # ======================================================================================
+    def zero_grad_forward_backward(
+            optimizer: torch.optim.Optimizer,
+            step_fn: Callable[[Tensor], Tensor],  # step_fn: batch_idx -> loss
+            get_kl_loss: Callable[[], Tensor],  # zero for every models except Bayesian ones
+            batch_idx: Tensor,
+            chunk_size: int,
+            grad_scaler: None | torch.cuda.amp.GradScaler = None,  # type: ignore[code]
+
+    ) -> tuple[Tensor, Tensor, int]:
+        """
+        This is a standard training step. Additionally, it supports:
+
+        - Training by chunks if the whole batch does not fit into GPU.
+        - Gradient scaling for training in FP16.
+        """
+        backward = (
+            Tensor.backward
+            if grad_scaler is None
+            else lambda x: grad_scaler.scale(x).backward()  # type: ignore[code]
+        )
+        batch_size = len(batch_idx)
+        loss = None
+        while chunk_size != 0:
+            optimizer.zero_grad()
+
+            try:
+                if batch_size <= chunk_size:
+                    # The simple forward-backward.
                     kl_loss = get_kl_loss()
-                    chunk_loss = (chunk_loss + kl_loss) * (len(chunk_idx) / batch_size)
-                    backward(chunk_loss)
-                    if loss is None:
-                        loss = chunk_loss.detach()
-                    else:
-                        loss += chunk_loss.detach()
-        except RuntimeError as err:
-            if not is_oom_exception(err):
-                raise
-            delu.cuda.free_memory()
-            chunk_size //= 2
+                    loss = step_fn(batch_idx) + kl_loss
+                    backward(loss)
+                else:
+                    # Forward-backward by chunks.
+                    # Mathematically, this is equivalent to the simple forward-backward.
+                    # Technically, this implementations uses less memory.
+                    loss = None
+                    for chunk_idx in batch_idx.split(chunk_size):
+                        chunk_loss = step_fn(chunk_idx)
+                        kl_loss = get_kl_loss()
+                        chunk_loss = (chunk_loss + kl_loss) * (len(chunk_idx) / batch_size)
+                        backward(chunk_loss)
+                        if loss is None:
+                            loss = chunk_loss.detach()
+                        else:
+                            loss += chunk_loss.detach()
+            except RuntimeError as err:
+                if not is_oom_exception(err):
+                    raise
+                delu.cuda.free_memory()
+                chunk_size //= 2
 
-        else:
-            break
+            else:
+                break
 
-    if not chunk_size:
-        raise RuntimeError('Not enough memory even for chunk_size=1')
-    return cast(Tensor, loss), cast(Tensor, kl_loss), chunk_size
+        if not chunk_size:
+            raise RuntimeError('Not enough memory even for chunk_size=1')
+        return cast(Tensor, loss), cast(Tensor, kl_loss), chunk_size

@@ -45,7 +45,7 @@ def main(
         raise ValueError(f'Bad input path: {path}')
 
     _bin.evaluate.main(evaluation_input, n_seeds, function, force=force)
-    _bin.ensemble.main(evaluation_dir, n_ensembles, ensemble_size, force=force)
+    # _bin.ensemble.main(evaluation_dir, n_ensembles, ensemble_size, force=force)
 
 
 if __name__ == '__main__':
