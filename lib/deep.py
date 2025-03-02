@@ -487,21 +487,24 @@ class DeepBMoE(BMoE):
 
         d_first = d_block // num_experts if d_in is None else d_in
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if d_block_per_expert is not None:
+            num_experts = d_block // d_block_per_expert
+
         if self.gating_type == 'standard':
             self.gate = nn.ModuleList(
                 [
                     nn.Sequential(
-                        nn.Linear(d_first if i == 0 else d_block, num_experts),
+                        nn.Linear(d_first if i == 0 else d_block // num_experts, num_experts),
                         nn.Softmax(dim=-1)
                     )
                     for i in range(n_blocks + 1)  # one more for final layer
                 ]
             )
         elif self.gating_type == 'bayesian':
-
             self.gate = nn.ModuleList(
                 [
-                    GumbelGatingNetwork(d_first if i == 0 else d_block, num_experts, tau=tau, device=device)
+                    GumbelGatingNetwork(d_first if i == 0 else d_block // num_experts, num_experts, tau=tau,
+                                        device=device)
                     for i in range(n_blocks + 1)  # one more for final layer
                 ]
             )
@@ -516,7 +519,7 @@ class DeepBMoE(BMoE):
             alpha = alpha.transpose(-1, -2)
         else:
             # [num_samples, batch_size, num_experts] -> [num_samples, num_experts, batch_size]
-            alpha = self.gate(x, num_samples=num_samples).permute(0, 2, 1)
+            alpha = gate(x, num_samples=num_samples).permute(0, 2, 1)
         return alpha
 
     def forward(self, x: Tensor, num_samples: None | int = None, return_average: bool = True) -> Tensor:
@@ -537,7 +540,7 @@ class DeepBMoE(BMoE):
             num_samples = 1
         elif num_samples is None:
             num_samples = self.default_num_samples
-
+            assert num_samples == 10, 'checker'
         for i in range(self.n_blocks + 1):
             alpha = self.apply_gate(x, self.gate[i], num_samples)
             x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])
@@ -559,6 +562,8 @@ class DeepBMoE(BMoE):
 
         return x
 
+    def get_kl_loss(self):
+        return torch.tensor(0.0).to(self.device)
     # class MoIEBlock(nn.Module):
     #     """
     #     One "layer" containing K linear experts of shape (in_dim -> out_dim).
@@ -741,166 +746,174 @@ class DeepBMoE(BMoE):
     #         else:
     #             assert False, f'The gating type {self.gating_type} is not supported'
 
-    _CUSTOM_MODULES = {
-        # https://docs.python.org/3/library/stdtypes.html#definition.__name__
-        CustomModule.__name__: CustomModule
-        for CustomModule in [
-            rtdl_num_embeddings.LinearEmbeddings,
-            rtdl_num_embeddings.LinearReLUEmbeddings,
-            rtdl_num_embeddings.PeriodicEmbeddings,
-            PiecewiseLinearEmbeddings,
-            MLP,
-            BMoE,
-            DeepBMoE,
+
+_CUSTOM_MODULES = {
+    # https://docs.python.org/3/library/stdtypes.html#definition.__name__
+    CustomModule.__name__: CustomModule
+    for CustomModule in [
+        rtdl_num_embeddings.LinearEmbeddings,
+        rtdl_num_embeddings.LinearReLUEmbeddings,
+        rtdl_num_embeddings.PeriodicEmbeddings,
+        PiecewiseLinearEmbeddings,
+        MLP,
+        BMoE,
+        DeepBMoE
+    ]
+}
+
+
+def make_module(type: str, *args, **kwargs) -> nn.Module:
+    Module = getattr(nn, type, None)
+    if Module is None:
+        Module = _CUSTOM_MODULES[type]
+    return Module(*args, **kwargs)
+
+
+def get_n_parameters(m: nn.Module):
+    return sum(x.numel() for x in m.parameters() if x.requires_grad)
+
+
+@torch.inference_mode()
+def compute_parameter_stats(module: nn.Module) -> dict[str, dict[str, float]]:
+    stats = {'norm': {}, 'gradnorm': {}, 'gradratio': {}}
+    for name, parameter in module.named_parameters():
+        stats['norm'][name] = parameter.norm().item()
+        if parameter.grad is not None:
+            stats['gradnorm'][name] = parameter.grad.norm().item()
+            # Avoid computing statistics for zero-initialized parameters.
+            if (parameter.abs() > 1e-6).any():
+                stats['gradratio'][name] = (
+                    (parameter.grad.abs() / parameter.abs().clamp_min_(1e-6))
+                    .mean()
+                    .item()
+                )
+    stats['norm']['model'] = (
+        torch.cat([x.flatten() for x in module.parameters()]).norm().item()
+    )
+    stats['gradnorm']['model'] = (
+        torch.cat([x.grad.flatten() for x in module.parameters() if x.grad is not None])
+        .norm()
+        .item()
+    )
+    return stats
+
+
+# ======================================================================================
+# Optimization
+# ======================================================================================
+def default_zero_weight_decay_condition(
+        module_name: str, module: nn.Module, parameter_name: str, parameter: Parameter
+):
+    from rtdl_num_embeddings import _Periodic
+
+    del module_name, parameter
+    return parameter_name.endswith('bias') or isinstance(
+        module,
+        nn.BatchNorm1d
+        | nn.LayerNorm
+        | nn.InstanceNorm1d
+        | rtdl_revisiting_models.LinearEmbeddings
+        | rtdl_num_embeddings.LinearEmbeddings
+        | rtdl_num_embeddings.LinearReLUEmbeddings
+        | _Periodic,
+    )
+
+
+def make_parameter_groups(
+        module: nn.Module,
+        zero_weight_decay_condition=default_zero_weight_decay_condition,
+        custom_groups: None | list[dict[str, Any]] = None,
+) -> list[dict[str, Any]]:
+    if custom_groups is None:
+        custom_groups = []
+    custom_params = frozenset(
+        itertools.chain.from_iterable(group['params'] for group in custom_groups)
+    )
+    assert len(custom_params) == sum(
+        len(group['params']) for group in custom_groups
+    ), 'Parameters in custom_groups must not intersect'
+    zero_wd_params = frozenset(
+        p
+        for mn, m in module.named_modules()
+        for pn, p in m.named_parameters()
+        if p not in custom_params and zero_weight_decay_condition(mn, m, pn, p)
+    )
+    default_group = {
+        'params': [
+            p
+            for p in module.parameters()
+            if p not in custom_params and p not in zero_wd_params
         ]
     }
+    return [
+        default_group,
+        {'params': list(zero_wd_params), 'weight_decay': 0.0},
+        *custom_groups,
+    ]
 
-    def make_module(type: str, *args, **kwargs) -> nn.Module:
-        Module = getattr(nn, type, None)
-        if Module is None:
-            Module = _CUSTOM_MODULES[type]
-        return Module(*args, **kwargs)
 
-    def get_n_parameters(m: nn.Module):
-        return sum(x.numel() for x in m.parameters() if x.requires_grad)
+def make_optimizer(type: str, **kwargs) -> torch.optim.Optimizer:
+    Optimizer = getattr(torch.optim, type)
+    return Optimizer(**kwargs)
 
-    @torch.inference_mode()
-    def compute_parameter_stats(module: nn.Module) -> dict[str, dict[str, float]]:
-        stats = {'norm': {}, 'gradnorm': {}, 'gradratio': {}}
-        for name, parameter in module.named_parameters():
-            stats['norm'][name] = parameter.norm().item()
-            if parameter.grad is not None:
-                stats['gradnorm'][name] = parameter.grad.norm().item()
-                # Avoid computing statistics for zero-initialized parameters.
-                if (parameter.abs() > 1e-6).any():
-                    stats['gradratio'][name] = (
-                        (parameter.grad.abs() / parameter.abs().clamp_min_(1e-6))
-                        .mean()
-                        .item()
-                    )
-        stats['norm']['model'] = (
-            torch.cat([x.flatten() for x in module.parameters()]).norm().item()
-        )
-        stats['gradnorm']['model'] = (
-            torch.cat([x.grad.flatten() for x in module.parameters() if x.grad is not None])
-            .norm()
-            .item()
-        )
-        return stats
 
-    # ======================================================================================
-    # Optimization
-    # ======================================================================================
-    def default_zero_weight_decay_condition(
-            module_name: str, module: nn.Module, parameter_name: str, parameter: Parameter
-    ):
-        from rtdl_num_embeddings import _Periodic
+# ======================================================================================
+# Training
+# ======================================================================================
+def zero_grad_forward_backward(
+        optimizer: torch.optim.Optimizer,
+        step_fn: Callable[[Tensor], Tensor],  # step_fn: batch_idx -> loss
+        get_kl_loss: Callable[[], Tensor],  # zero for every models except Bayesian ones
+        batch_idx: Tensor,
+        chunk_size: int,
+        grad_scaler: None | torch.cuda.amp.GradScaler = None,  # type: ignore[code]
 
-        del module_name, parameter
-        return parameter_name.endswith('bias') or isinstance(
-            module,
-            nn.BatchNorm1d
-            | nn.LayerNorm
-            | nn.InstanceNorm1d
-            | rtdl_revisiting_models.LinearEmbeddings
-            | rtdl_num_embeddings.LinearEmbeddings
-            | rtdl_num_embeddings.LinearReLUEmbeddings
-            | _Periodic,
-        )
+) -> tuple[Tensor, Tensor, int]:
+    """
+    This is a standard training step. Additionally, it supports:
 
-    def make_parameter_groups(
-            module: nn.Module,
-            zero_weight_decay_condition=default_zero_weight_decay_condition,
-            custom_groups: None | list[dict[str, Any]] = None,
-    ) -> list[dict[str, Any]]:
-        if custom_groups is None:
-            custom_groups = []
-        custom_params = frozenset(
-            itertools.chain.from_iterable(group['params'] for group in custom_groups)
-        )
-        assert len(custom_params) == sum(
-            len(group['params']) for group in custom_groups
-        ), 'Parameters in custom_groups must not intersect'
-        zero_wd_params = frozenset(
-            p
-            for mn, m in module.named_modules()
-            for pn, p in m.named_parameters()
-            if p not in custom_params and zero_weight_decay_condition(mn, m, pn, p)
-        )
-        default_group = {
-            'params': [
-                p
-                for p in module.parameters()
-                if p not in custom_params and p not in zero_wd_params
-            ]
-        }
-        return [
-            default_group,
-            {'params': list(zero_wd_params), 'weight_decay': 0.0},
-            *custom_groups,
-        ]
+    - Training by chunks if the whole batch does not fit into GPU.
+    - Gradient scaling for training in FP16.
+    """
+    backward = (
+        Tensor.backward
+        if grad_scaler is None
+        else lambda x: grad_scaler.scale(x).backward()  # type: ignore[code]
+    )
+    batch_size = len(batch_idx)
+    loss = None
+    while chunk_size != 0:
+        optimizer.zero_grad()
 
-    def make_optimizer(type: str, **kwargs) -> torch.optim.Optimizer:
-        Optimizer = getattr(torch.optim, type)
-        return Optimizer(**kwargs)
-
-    # ======================================================================================
-    # Training
-    # ======================================================================================
-    def zero_grad_forward_backward(
-            optimizer: torch.optim.Optimizer,
-            step_fn: Callable[[Tensor], Tensor],  # step_fn: batch_idx -> loss
-            get_kl_loss: Callable[[], Tensor],  # zero for every models except Bayesian ones
-            batch_idx: Tensor,
-            chunk_size: int,
-            grad_scaler: None | torch.cuda.amp.GradScaler = None,  # type: ignore[code]
-
-    ) -> tuple[Tensor, Tensor, int]:
-        """
-        This is a standard training step. Additionally, it supports:
-
-        - Training by chunks if the whole batch does not fit into GPU.
-        - Gradient scaling for training in FP16.
-        """
-        backward = (
-            Tensor.backward
-            if grad_scaler is None
-            else lambda x: grad_scaler.scale(x).backward()  # type: ignore[code]
-        )
-        batch_size = len(batch_idx)
-        loss = None
-        while chunk_size != 0:
-            optimizer.zero_grad()
-
-            try:
-                if batch_size <= chunk_size:
-                    # The simple forward-backward.
-                    kl_loss = get_kl_loss()
-                    loss = step_fn(batch_idx) + kl_loss
-                    backward(loss)
-                else:
-                    # Forward-backward by chunks.
-                    # Mathematically, this is equivalent to the simple forward-backward.
-                    # Technically, this implementations uses less memory.
-                    loss = None
-                    for chunk_idx in batch_idx.split(chunk_size):
-                        chunk_loss = step_fn(chunk_idx)
-                        kl_loss = get_kl_loss()
-                        chunk_loss = (chunk_loss + kl_loss) * (len(chunk_idx) / batch_size)
-                        backward(chunk_loss)
-                        if loss is None:
-                            loss = chunk_loss.detach()
-                        else:
-                            loss += chunk_loss.detach()
-            except RuntimeError as err:
-                if not is_oom_exception(err):
-                    raise
-                delu.cuda.free_memory()
-                chunk_size //= 2
-
+        try:
+            if batch_size <= chunk_size:
+                # The simple forward-backward.
+                kl_loss = get_kl_loss()
+                loss = step_fn(batch_idx) + kl_loss
+                backward(loss)
             else:
-                break
+                # Forward-backward by chunks.
+                # Mathematically, this is equivalent to the simple forward-backward.
+                # Technically, this implementations uses less memory.
+                loss = None
+                for chunk_idx in batch_idx.split(chunk_size):
+                    chunk_loss = step_fn(chunk_idx)
+                    kl_loss = get_kl_loss()
+                    chunk_loss = (chunk_loss + kl_loss) * (len(chunk_idx) / batch_size)
+                    backward(chunk_loss)
+                    if loss is None:
+                        loss = chunk_loss.detach()
+                    else:
+                        loss += chunk_loss.detach()
+        except RuntimeError as err:
+            if not is_oom_exception(err):
+                raise
+            delu.cuda.free_memory()
+            chunk_size //= 2
 
-        if not chunk_size:
-            raise RuntimeError('Not enough memory even for chunk_size=1')
-        return cast(Tensor, loss), cast(Tensor, kl_loss), chunk_size
+        else:
+            break
+
+    if not chunk_size:
+        raise RuntimeError('Not enough memory even for chunk_size=1')
+    return cast(Tensor, loss), cast(Tensor, kl_loss), chunk_size

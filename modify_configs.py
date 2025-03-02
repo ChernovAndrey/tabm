@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
-    assert model_type in ['moe', 'bmoe'], "Incorrect model_type"
+    assert model_type in ['moe', 'bmoe', 'deepbmoe'], "Incorrect model_type"
     # Ensure destination folder exists
     Path(dest_folder).mkdir(parents=True, exist_ok=True)
 
@@ -35,7 +35,10 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
         #     del optimizer['weight_decay']
         # Modify model backbone
         model_backbone = config["space"]["model"]["backbone"]
-        model_backbone["type"] = "BMoE"
+        if model_type == 'deepbmoe':
+            model_backbone['type'] = 'DeepBMoE'
+        else:
+            model_backbone["type"] = "BMoE"
         # model_backbone["n_blocks"] = ["_tune_", "int", 1, 2]
 
         # model_backbone["d_block"] = ["_tune_", "int", 128, 2048, 32]
@@ -46,7 +49,7 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
         # model_backbone["d_block"] = ["_tune_", "int", 256, 2560, 128]
         # model_backbone["d_block_per_expert"] = ["_tune_", "int", 32, 128, 32]
 
-        if model_type == 'bmoe':
+        if model_type in ('bmoe', 'deepbmoe'):
             # model_backbone["dropout"] = 0.0
             # model_backbone["gating_prior_std"] = ["_tune_", "uniform", 0.1, 1.0]
             # model_backbone["kl_factor"] = ["_tune_", "loguniform", 0.001, 1.0]
@@ -58,7 +61,7 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
             model_backbone["kl_factor"] = 1e-2
 
         # Add new variables
-        if model_type == 'bmoe':
+        if model_type in ('bmoe', 'deepbmoe'):
             model_backbone["gating_type"] = "bayesian"
         else:
             model_backbone["gating_type"] = "standard"
@@ -74,13 +77,13 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
         print(f"Modified config saved to: {dest_config_path}")
 
 
-model_type = 'bmoe'
-# embeddings = "-piecewiselinear"
-embeddings = ""
+model_type = 'deepbmoe'
+embeddings = "-piecewiselinear"
+# embeddings = ""
 # Define source and destination folders
 source_folder = f"exp/mlp{embeddings}/"
 # source_folder = f"exp/mlp/why"
-destination_folder = f"exp/{model_type}{embeddings}/"
+destination_folder = f"exp_advanced/{model_type}{embeddings}/"
 
 # Run the function
 modify_and_copy_configs(source_folder, destination_folder, model_type)
