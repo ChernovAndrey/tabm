@@ -751,6 +751,7 @@ class DeepBMoE(BMoE):
             PiecewiseLinearEmbeddings,
             MLP,
             BMoE,
+            DeepBMoE,
         ]
     }
 

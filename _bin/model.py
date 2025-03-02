@@ -159,9 +159,10 @@ class Model(nn.Module):
         # >>> Backbone
         d_flat = d_num + d_cat
         self.minimal_ensemble_adapter = None
-        if backbone['type'] in ['BMoE', 'BMoIE']:
+        if backbone['type'] in ['BMoE', 'BMoIE', 'DeepBMoE']:
             d_out = 1 if n_classes is None else n_classes
         else:
+            assert False, 'checker'
             d_out = None
         self.backbone = lib.deep.make_module(d_in=d_flat, **backbone, d_out=d_out)
 
@@ -212,9 +213,10 @@ class Model(nn.Module):
 
         # >>> Output
 
-        if backbone['type'] in ['BMoE', 'BMoIE']:
+        if backbone['type'] in ['BMoE', 'BMoIE', 'DeepBMoE']:
             self.output = None
         else:
+            assert False, 'checker'
             d_block = backbone['d_block']
             d_out = 1 if n_classes is None else n_classes
             self.output = (
