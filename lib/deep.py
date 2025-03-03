@@ -13,6 +13,7 @@ from torch.nn import Parameter
 
 from .util import is_oom_exception, init_rsqrt_uniform_
 from .bnn import BayesianGatingNetwork, GumbelGatingNetwork
+from .gated_experts import GatedExperts
 
 
 # ======================================================================================
@@ -351,6 +352,7 @@ class BMoE(nn.Module):
             default_num_samples: int = 10,
             tau: float = 1.0,
             expert_type: Literal['MLP', 'gMLP'] = 'MLP',
+            adapter: bool = False
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
         assert gating_type in ['standard', 'bayesian']
@@ -369,6 +371,7 @@ class BMoE(nn.Module):
         self.gating_type = gating_type
         self.default_num_samples = default_num_samples
         self.expert_type = expert_type
+        self.adapter = adapter
         print(f'expert type:{expert_type}')
         print(f'gating type:{self.gating_type}')
         print(f'default num samples:{self.default_num_samples}')
@@ -377,7 +380,6 @@ class BMoE(nn.Module):
         self.stat_alpha_sum = None
         # Gating network
         self.gating_type = gating_type
-        from .gated_experts import GatedExperts
         if self.expert_type == 'MLP':
             self.Weights = nn.ParameterList()
             for i in range(n_blocks + 1):  # one more for the output layer!
@@ -409,6 +411,11 @@ class BMoE(nn.Module):
             self.gate = GumbelGatingNetwork(d_first, num_experts, tau=tau, device=device)
         else:
             raise ValueError(f'The gating type "{self.gating_type}" is not supported.')
+
+        if self.adapter:
+            print('with adapter')
+            self.r = nn.Parameter(torch.empty(num_experts, d_first))
+            init_rsqrt_uniform_(self.r, d_first)
 
     def forward(self, x: Tensor, num_samples: None | int = None, return_average: bool = True) -> Tensor:
         """
@@ -443,7 +450,17 @@ class BMoE(nn.Module):
                 alpha = alpha.permute(0, 2, 1)
         if self.expert_type == 'MLP':
             for i in range(self.n_blocks + 1):
+                if i == 0 and self.adapter:
+                    # Apply element-wise multiplication with broadcasting
+                    x_expanded = x.unsqueeze(1)  # (batch_size, 1, d_first)
+                    r_expanded = self.r.unsqueeze(0)  # (1, num_experts, d_first)
+
+                    x = x_expanded * r_expanded  # (batch_size, num_experts, d_first)
+                    x = x.permute(1, 0, 2)  # # (num_experts, batch_size, d_first)
+
+                # weights_i: num_experts, d_first, d_block
                 x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])  # TODO: Is just matmul not enough?
+
                 if i < self.n_blocks:
                     x = self.activation(x)
                     if self.dropout is not None:

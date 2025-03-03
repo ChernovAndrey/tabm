@@ -5,7 +5,7 @@ from pathlib import Path
 
 
 def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
-    assert model_type in ['moe', 'bmoe', 'deepbmoe'], "Incorrect model_type"
+    assert model_type in ['moe', 'bmoe', 'deepbmoe', 'gmlp_bmoe', 'bmoe_adapter'], "Incorrect model_type"
     # Ensure destination folder exists
     Path(dest_folder).mkdir(parents=True, exist_ok=True)
 
@@ -49,19 +49,23 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
         # model_backbone["d_block"] = ["_tune_", "int", 256, 2560, 128]
         # model_backbone["d_block_per_expert"] = ["_tune_", "int", 32, 128, 32]
 
-        if model_type in ('bmoe', 'deepbmoe'):
+        if model_type in ('bmoe', 'deepbmoe', 'gmlp_bmoe', 'bmoe_adapter'):
             # model_backbone["dropout"] = 0.0
             # model_backbone["gating_prior_std"] = ["_tune_", "uniform", 0.1, 1.0]
             # model_backbone["kl_factor"] = ["_tune_", "loguniform", 0.001, 1.0]
             model_backbone["default_num_samples"] = 10
             model_backbone["tau"] = ["_tune_", "uniform", 0.5, 3.0]
+            if model_type == 'gmlp_bmoe':
+                model_backbone["expert_type"] = 'gMLP'
+            if model_type == 'bmoe_adapter':
+                model_backbone["adapter"] = True
         else:
             # model_backbone["num_experts"] = ["_tune_", "int", 4, 40, 4]
             model_backbone["gating_prior_std"] = 1.0
             model_backbone["kl_factor"] = 1e-2
 
         # Add new variables
-        if model_type in ('bmoe', 'deepbmoe'):
+        if model_type in ('bmoe', 'deepbmoe', 'gmlp_bmoe', 'bmoe_adapter'):
             model_backbone["gating_type"] = "bayesian"
         else:
             model_backbone["gating_type"] = "standard"
@@ -77,13 +81,14 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
         print(f"Modified config saved to: {dest_config_path}")
 
 
-model_type = 'deepbmoe'
+# model_type = 'gmlp_bmoe'
+model_type = 'bmoe_adapter'
 embeddings = "-piecewiselinear"
 # embeddings = ""
 # Define source and destination folders
-source_folder = f"exp/mlp{embeddings}/"
+source_folder = f"exp/mlp{embeddings}/why"
 # source_folder = f"exp/mlp/why"
-destination_folder = f"exp_advanced/{model_type}{embeddings}/"
+destination_folder = f"exp_advanced/{model_type}{embeddings}/why"
 
 # Run the function
 modify_and_copy_configs(source_folder, destination_folder, model_type)
