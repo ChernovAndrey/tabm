@@ -443,7 +443,6 @@ class BMoE(nn.Module):
             if self.expert_type == "MLP":
                 alpha = alpha.transpose(-1, -2)
         else:
-            num_samples = 5
             alpha = self.gate(x, num_samples=num_samples)
             if self.expert_type == "MLP":
                 # [num_samples, batch_size, num_experts] -> [num_samples, num_experts, batch_size]
