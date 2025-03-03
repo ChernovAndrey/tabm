@@ -333,17 +333,6 @@ class MLP(nn.Module):
         return x
 
 
-def get_experts_block(in_features: int, out_features: int, num_experts: int, activation: str,
-                      dropout: None | bool, ) -> nn.ModuleList:
-    w = torch.zeros(num_experts, in_features, out_features)
-
-    w = init_rsqrt_uniform_(w, w.shape[-1])
-    out = nn.ModuleList([nn.Parameter(w), getattr(nn, activation)()])
-    if dropout is not None:
-        out.append(nn.Dropout(dropout))
-    return out
-
-
 class BMoE(nn.Module):
     def __init__(
             self,
@@ -361,9 +350,12 @@ class BMoE(nn.Module):
             d_block_per_expert: None | int = None,
             default_num_samples: int = 10,
             tau: float = 1.0,
+            expert_type: Literal['MLP', 'gMLP'] = 'MLP',
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
         assert gating_type in ['standard', 'bayesian']
+        assert expert_type in ['MLP', 'gMLP']
+
         super().__init__()
         if d_block_per_expert is not None:
             num_experts = d_block // d_block_per_expert
@@ -376,24 +368,29 @@ class BMoE(nn.Module):
         self.num_experts = num_experts
         self.gating_type = gating_type
         self.default_num_samples = default_num_samples
+        self.expert_type = expert_type
+        print(f'expert type:{expert_type}')
         print(f'gating type:{self.gating_type}')
         print(f'default num samples:{self.default_num_samples}')
-        print(f'kl_factor: {kl_factor}')
         d_first = d_block // num_experts if d_in is None else d_in
 
         self.stat_alpha_sum = None
         # Gating network
         self.gating_type = gating_type
+        from .gated_experts import GatedExperts
+        if self.expert_type == 'MLP':
+            self.Weights = nn.ParameterList()
+            for i in range(n_blocks + 1):  # one more for the output layer!
+                w = torch.zeros(num_experts, d_first if i == 0 else d_block // num_experts,
+                                d_out if i == n_blocks else d_block // num_experts)
+                w = init_rsqrt_uniform_(w, w.shape[-1])  # TODO: w.shape[-2]????
+                self.Weights.append(nn.Parameter(w))
 
-        self.Weights = nn.ParameterList()
-        for i in range(n_blocks + 1):  # one more for the output layer!
-            w = torch.zeros(num_experts, d_first if i == 0 else d_block // num_experts,
-                            d_out if i == n_blocks else d_block // num_experts)
-            w = init_rsqrt_uniform_(w, w.shape[-1])
-            self.Weights.append(nn.Parameter(w))
-
-        self.activation = getattr(nn, activation)()
-
+                self.activation = getattr(nn, activation)()
+        elif self.expert_type == 'gMLP':
+            self.experts = GatedExperts(n_blocks, num_experts, d_first, d_out, d_block, d_block, dropout)
+        else:
+            assert False, f'expert type: {self.expert_type} is not suppoerted'
         self.dropout = nn.Dropout(dropout)  # if self.gating_type == 'standard' else None
 
         if self.gating_type == 'standard':
@@ -435,26 +432,34 @@ class BMoE(nn.Module):
             # [batch_size, num_experts] -> [num_experts, batch_size]
             alpha = self.gate(x, num_samples=num_samples) if self.gating_type == 'bayesian' \
                 else self.gate(x)
-            alpha = alpha.transpose(-1, -2)
-        else:
-            # [num_samples, batch_size, num_experts] -> [num_samples, num_experts, batch_size]
-            alpha = self.gate(x, num_samples=num_samples).permute(0, 2, 1)
 
-        for i in range(self.n_blocks + 1):
-            x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])
-            if i < self.n_blocks:
-                x = self.activation(x)
-                if self.dropout is not None:
-                    x = self.dropout(x)
+            if self.expert_type == "MLP":
+                alpha = alpha.transpose(-1, -2)
+        else:
+            num_samples = 5
+            alpha = self.gate(x, num_samples=num_samples)
+            if self.expert_type == "MLP":
+                # [num_samples, batch_size, num_experts] -> [num_samples, num_experts, batch_size]
+                alpha = alpha.permute(0, 2, 1)
+        if self.expert_type == 'MLP':
+            for i in range(self.n_blocks + 1):
+                x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])  # TODO: Is just matmul not enough?
+                if i < self.n_blocks:
+                    x = self.activation(x)
+                    if self.dropout is not None:
+                        x = self.dropout(x)
+        elif self.expert_type == 'gMLP':
+            x = self.experts(x)
+        else:
+            assert False, f'expert type: {self.expert_type} is not supported'
 
         if self.training or num_samples < 2 or self.gating_type == 'standard':
-            output = torch.sum(alpha.unsqueeze(-1) * x, dim=0)
+            output = torch.sum(alpha.unsqueeze(-1) * x, dim=0 if self.expert_type == 'MLP' else 1)
         else:
             # EVAL MODE (Bayesian ensemble)
             weighted_expert_outputs = alpha.unsqueeze(-1) * x.unsqueeze(0)
-
             # 4) Sum over experts => [10, batch_size, output_dim]
-            weighted_sums = torch.sum(weighted_expert_outputs, dim=1)
+            weighted_sums = torch.sum(weighted_expert_outputs, dim=1 if self.expert_type == 'MLP' else 2)
 
             # [ num_samples, batch_size, output_dim]
             if return_average:
