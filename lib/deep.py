@@ -345,7 +345,7 @@ class BMoE(nn.Module):
             dropout: float,
             activation: str = 'ReLU',
             num_experts: None | int = None,
-            gating_type: str,  # ['standard' or 'bayesian']
+            gating_type: Literal['standard', 'bayesian', 'sigmoid_adapter'],
             kl_factor: float = 1e-2,
             gating_prior_std: float = 1.0,
             d_block_per_expert: None | int = None,
@@ -355,7 +355,7 @@ class BMoE(nn.Module):
             adapter: bool = False
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
-        assert gating_type in ['standard', 'bayesian']
+        assert gating_type in ['standard', 'bayesian', 'sigmoid_adapter']
         assert expert_type in ['MLP', 'gMLP']
 
         super().__init__()
@@ -409,7 +409,7 @@ class BMoE(nn.Module):
             #     device=self.device,
             # )
             self.gate = GumbelGatingNetwork(d_first, num_experts, tau=tau, device=device)
-        else:
+        elif self.gating_type != 'sigmoid_adapter':
             raise ValueError(f'The gating type "{self.gating_type}" is not supported.')
 
         if self.adapter:
@@ -430,23 +430,25 @@ class BMoE(nn.Module):
         """
         # print(f'num samples:{num_samples}')
         # TODO: improve code clarity
-        if self.training or self.gating_type == 'standard':
+        if self.training or self.gating_type in ['standard', 'sigmoid_adapter']:
             num_samples = 1
         elif num_samples is None:
             num_samples = self.default_num_samples
 
-        if self.training or num_samples < 2 or self.gating_type == 'standard':
-            # [batch_size, num_experts] -> [num_experts, batch_size]
-            alpha = self.gate(x, num_samples=num_samples) if self.gating_type == 'bayesian' \
-                else self.gate(x)
+        if self.gating_type != 'sigmoid_adapter':
+            if self.training or num_samples < 2 or self.gating_type == 'standard':
+                # [batch_size, num_experts] -> [num_experts, batch_size]
+                alpha = self.gate(x, num_samples=num_samples) if self.gating_type == 'bayesian' \
+                    else self.gate(x)
 
-            if self.expert_type == "MLP":
-                alpha = alpha.transpose(-1, -2)
-        else:
-            alpha = self.gate(x, num_samples=num_samples)
-            if self.expert_type == "MLP":
-                # [num_samples, batch_size, num_experts] -> [num_samples, num_experts, batch_size]
-                alpha = alpha.permute(0, 2, 1)
+                if self.expert_type == "MLP":
+                    alpha = alpha.transpose(-1, -2)
+            else:
+                alpha = self.gate(x, num_samples=num_samples)
+                if self.expert_type == "MLP":
+                    # [num_samples, batch_size, num_experts] -> [num_samples, num_experts, batch_size]
+                    alpha = alpha.permute(0, 2, 1)
+
         if self.expert_type == 'MLP':
             for i in range(self.n_blocks + 1):
                 if i == 0 and self.adapter:
@@ -455,6 +457,12 @@ class BMoE(nn.Module):
                     r_expanded = self.r.unsqueeze(0)  # (1, num_experts, d_first)
 
                     x = x_expanded * r_expanded  # (batch_size, num_experts, d_first)
+                    if self.gating_type == 'sigmoid_adapter':
+                        alpha = x.sum(dim=-1).sigmoid()  # (batch_size, num_experts, )
+                        alpha = alpha / alpha.sum(dim=-1, keepdim=True)
+                        alpha = alpha.transpose(-1, -2)
+
+
                     x = x.permute(1, 0, 2)  # # (num_experts, batch_size, d_first)
 
                 # weights_i: num_experts, d_first, d_block
@@ -463,9 +471,9 @@ class BMoE(nn.Module):
                 if i < self.n_blocks:
                     x = self.activation(x)
                     if self.dropout is not None:
-                        x = self.dropout(x)
+                        x = self.dropout(x)  # [num_experts, batch_size, d_out]
         elif self.expert_type == 'gMLP':
-            x = self.experts(x)
+            x = self.experts(x)  # [batch_size, num_experts, d_out]
         else:
             assert False, f'expert type: {self.expert_type} is not supported'
 
@@ -488,12 +496,10 @@ class BMoE(nn.Module):
         """
         Only gating is Bayesian, so just return gating's KL.
         """
-        if self.gating_type == 'standard':
-            return torch.tensor(0.0).to(self.device)
-        elif self.gating_type == 'bayesian':
+        if self.gating_type == 'bayesian':
             return self.kl_factor * self.gate.kl_loss()
         else:
-            assert False, f'The gating type {self.gating_type} is not supported'
+            return torch.tensor(0.0).to(self.device)
 
 
 class DeepBMoE(BMoE):
