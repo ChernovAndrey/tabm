@@ -70,12 +70,12 @@ class GatedExperts(nn.Module):
             if (i == 0) or (i == self.n_blocks):
                 x = torch.matmul(hidden, self.W2[i])  # (batch, num_experts, 1, dim)
             else:
-                x = torch.matmul(hidden, self.W2[i]) + x  #residual connection
+                x = torch.matmul(hidden, self.W2[i]) + x  # residual connection
             if i < self.n_blocks:
                 if self.dropout is not None:
                     x = self.dropout(x)
-
-        return x.squeeze()  # Shape: (batch_size, num_experts, dim)
+        x = x.squeeze()
+        return x.unsqueeze(-1) if x.dim() == 2 else x  # Shape: (batch_size, num_experts, dim)
 
 # 256, 10, 64;
 # 10, 64, 64
