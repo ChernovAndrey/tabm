@@ -6,7 +6,7 @@ from pathlib import Path
 
 def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
     assert model_type in ['moe', 'bmoe', 'deepbmoe', 'gmlp_bmoe', 'bmoe_adapter',
-                          'bmoe_adapter_sigmoid'], "Incorrect model_type"
+                          'bmoe_adapter_sigmoid', 'bmoe_adapter_sigmoid_kmeans'], "Incorrect model_type"
     # Ensure destination folder exists
     Path(dest_folder).mkdir(parents=True, exist_ok=True)
 
@@ -56,7 +56,7 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
             # model_backbone["kl_factor"] = ["_tune_", "loguniform", 0.001, 1.0]
             model_backbone["default_num_samples"] = 10
             model_backbone["tau"] = ["_tune_", "uniform", 0.5, 3.0]
-        elif model_type != 'bmoe_adapter_sigmoid':
+        elif model_type not in ('bmoe_adapter_sigmoid', 'bmoe_adapter_sigmoid_kmeans'):
             # model_backbone["num_experts"] = ["_tune_", "int", 4, 40, 4]
             model_backbone["gating_prior_std"] = 1.0
             model_backbone["kl_factor"] = 1e-2
@@ -64,13 +64,15 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
         if model_type == 'gmlp_bmoe':
             model_backbone["expert_type"] = 'gMLP'
 
-        if model_type in ['bmoe_adapter', 'bmoe_adapter_sigmoid']:
+        if model_type in ['bmoe_adapter', 'bmoe_adapter_sigmoid', 'bmoe_adapter_sigmoid_kmeans']:
             model_backbone["adapter"] = True
         # Add new variables
         if model_type in ('bmoe', 'deepbmoe', 'gmlp_bmoe', 'bmoe_adapter'):
             model_backbone["gating_type"] = "bayesian"
         elif model_type == 'bmoe_adapter_sigmoid':
             model_backbone["gating_type"] = "sigmoid_adapter"
+        elif model_type == 'bmoe_adapter_sigmoid_kmeans':
+            model_backbone["gating_type"] = "sigmoid_adapter_kmeans"
         else:
             model_backbone["gating_type"] = "standard"
 
@@ -86,7 +88,7 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
 
 
 # model_type = 'gmlp_bmoe'
-model_type = 'bmoe_adapter_sigmoid'
+model_type = 'bmoe_adapter_sigmoid_kmeans'
 embeddings = "-piecewiselinear"
 # embeddings = ""
 # Define source and destination folders

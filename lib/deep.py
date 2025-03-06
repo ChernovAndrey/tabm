@@ -304,6 +304,7 @@ class MLP(nn.Module):
     def __init__(
             self,
             *,
+            lr: float,
             d_in: None | int = None,
             d_out: None | int = None,
             n_blocks: int,
@@ -338,6 +339,7 @@ class BMoE(nn.Module):
     def __init__(
             self,
             *,
+            lr : float,
             d_in: None | int = None,
             d_out: None | int = None,
             n_blocks: int,
@@ -345,7 +347,7 @@ class BMoE(nn.Module):
             dropout: float,
             activation: str = 'ReLU',
             num_experts: None | int = None,
-            gating_type: Literal['standard', 'bayesian', 'sigmoid_adapter'],
+            gating_type: Literal['standard', 'bayesian', 'sigmoid_adapter', 'sigmoid_adapter_kmeans'],
             kl_factor: float = 1e-2,
             gating_prior_std: float = 1.0,
             d_block_per_expert: None | int = None,
@@ -355,7 +357,7 @@ class BMoE(nn.Module):
             adapter: bool = False
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
-        assert gating_type in ['standard', 'bayesian', 'sigmoid_adapter']
+        assert gating_type in ['standard', 'bayesian', 'sigmoid_adapter', 'sigmoid_adapter_kmeans']
         assert expert_type in ['MLP', 'gMLP']
 
         super().__init__()
@@ -364,6 +366,7 @@ class BMoE(nn.Module):
             print(f'num experts is set to :{num_experts}')
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         print("Using device:", device)
+        self.lr = lr
         self.device = device
         self.n_blocks = n_blocks
         self.kl_factor = kl_factor
@@ -409,13 +412,63 @@ class BMoE(nn.Module):
             #     device=self.device,
             # )
             self.gate = GumbelGatingNetwork(d_first, num_experts, tau=tau, device=device)
-        elif self.gating_type != 'sigmoid_adapter':
+        elif self.gating_type not in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
             raise ValueError(f'The gating type "{self.gating_type}" is not supported.')
 
         if self.adapter:
             print('with adapter')
-            self.r = nn.Parameter(torch.empty(num_experts, d_first))
-            init_rsqrt_uniform_(self.r, d_first)
+            if self.gating_type == 'sigmoid_adapter_kmeans':
+                self.r_new = None
+                self.lr_kmeans = None
+                requires_grad = False
+            else:
+                requires_grad = True
+            self.r = nn.Parameter(torch.empty(num_experts, d_first), requires_grad=requires_grad)
+            init_rsqrt_uniform_(self.r, d_first)  # TODO: probably it is not good init for centroids?
+
+    @torch.no_grad()
+    def calculate_new_centroids(self, alpha: torch.Tensor, x_emb: torch.Tensor) -> None:
+        """
+        Computes new centroids using adaptive soft mini-batch K-Means and stores them in self.r_new.
+
+        Args:
+            x_emb (tensor): Shape = (batch_size, num_experts, d_first)
+            alpha (tensor): Shape = (batch_size, num_experts)
+        """
+        assert self.training and self.gating_type == 'sigmoid_adapter_kmeans'
+
+        # print('stat:')
+        # print(x_emb.min())
+        # print(x_emb.mean())
+        # print(x_emb.std())
+        # print(x_emb.max())
+
+        # Ensure alpha has correct shape for broadcasting
+        alpha = alpha.unsqueeze(-1)  # Shape: (batch_size, num_experts, 1)
+
+        # Compute soft cluster sizes (sum of alpha per expert)
+        weight_sum = torch.sum(alpha, dim=0, keepdim=False)  # (num_experts, 1)
+
+        # Compute the weighted mean of embeddings
+        weighted_sum = torch.sum(alpha * x_emb, dim=0)  # (num_experts, d_first)
+
+        # Avoid division by zero
+        eps = 1e-8
+        self.r_new = weighted_sum / (weight_sum + eps)  # Store new centroids
+        self.lr_kmeans = torch.clamp(1 / (weight_sum + eps), max=1.0)
+        # self.lr_kmeans = weight_sum / batch_size
+
+    @torch.no_grad()
+    def update_centroids(self):
+        """
+        Applies exponential moving average (EMA) update to centroids using self.r_new.
+        """
+        assert self.training and self.gating_type == 'sigmoid_adapter_kmeans'
+        assert self.r_new is not None, "calculate_new_centroids() must be called before update_centroids()"
+
+        self.r.mul_(1 - self.lr * self.lr_kmeans).add_(self.lr * self.lr_kmeans * self.r_new)
+        self.r_new = None
+        self.lr_kmeans = None
 
     def forward(self, x: Tensor, num_samples: None | int = None, return_average: bool = True) -> Tensor:
         """
@@ -430,12 +483,12 @@ class BMoE(nn.Module):
         """
         # print(f'num samples:{num_samples}')
         # TODO: improve code clarity
-        if self.training or self.gating_type in ['standard', 'sigmoid_adapter']:
+        if self.training or self.gating_type in ['standard', 'sigmoid_adapter', 'sigmoid_adapter_kmeans']:
             num_samples = 1
         elif num_samples is None:
             num_samples = self.default_num_samples
 
-        if self.gating_type != 'sigmoid_adapter':
+        if self.gating_type not in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
             if self.training or num_samples < 2 or self.gating_type == 'standard':
                 # [batch_size, num_experts] -> [num_experts, batch_size]
                 alpha = self.gate(x, num_samples=num_samples) if self.gating_type == 'bayesian' \
@@ -457,11 +510,12 @@ class BMoE(nn.Module):
                     r_expanded = self.r.unsqueeze(0)  # (1, num_experts, d_first)
 
                     x = x_expanded * r_expanded  # (batch_size, num_experts, d_first)
-                    if self.gating_type == 'sigmoid_adapter':
+                    if self.gating_type in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
                         alpha = x.sum(dim=-1).sigmoid()  # (batch_size, num_experts, )
                         alpha = alpha / alpha.sum(dim=-1, keepdim=True)
+                        if self.gating_type == 'sigmoid_adapter_kmeans' and self.training:
+                            self.calculate_new_centroids(alpha, x)
                         alpha = alpha.transpose(-1, -2)
-
 
                     x = x.permute(1, 0, 2)  # # (num_experts, batch_size, d_first)
 

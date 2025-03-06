@@ -85,6 +85,7 @@ class Model(nn.Module):
             self,
             *,
             n_num_features: int,
+            lr: float,
             cat_cardinalities: list[int],
             n_classes: None | int,
             backbone: dict,
@@ -164,7 +165,7 @@ class Model(nn.Module):
         else:
             assert False, 'checker'
             d_out = None
-        self.backbone = lib.deep.make_module(d_in=d_flat, **backbone, d_out=d_out)
+        self.backbone = lib.deep.make_module(d_in=d_flat, **backbone, d_out=d_out, lr=lr)
 
         if arch_type != 'plain':
             assert k is not None
@@ -400,6 +401,7 @@ def main(
         n_classes=dataset.task.try_compute_n_classes(),
         **config['model'],
         bins=bin_edges,
+        lr=config['optimizer']['lr']
     )
     report['n_parameters'] = lib.deep.get_n_parameters(model)
     logger.info(f'n_parameters = {report["n_parameters"]}')
@@ -632,6 +634,8 @@ def main(
                 else:
                     grad_scaler.step(optimizer)
                     grad_scaler.update()
+                if config['model']['backbone'].get('gating_type', None) == 'sigmoid_adapter_kmeans':
+                    model.backbone.update_centroids()
 
                 step += 1
                 kl_loss = kl_loss.detach()
@@ -704,7 +708,7 @@ def main(
     report['metrics'], predictions, head_predictions, _ = evaluate(
         ['train', 'val', 'test'], eval_batch_size
     )
-    print('check')
+
     print(report['metrics'])
     report['chunk_size'] = chunk_size
     report['eval_batch_size'] = eval_batch_size
