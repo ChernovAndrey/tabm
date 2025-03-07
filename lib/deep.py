@@ -354,12 +354,13 @@ class BMoE(nn.Module):
             default_num_samples: int = 10,
             tau: float = 1.0,
             expert_type: Literal['MLP', 'gMLP'] = 'MLP',
-            adapter: bool = False
+            adapter: bool = False,
+            adapter_init: Literal['normal', 'init_rsqrt_uniform'] = 'init_rsqrt_uniform'
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
         assert gating_type in ['standard', 'bayesian', 'sigmoid_adapter', 'sigmoid_adapter_kmeans']
         assert expert_type in ['MLP', 'gMLP']
-
+        assert adapter_init in ['normal', 'init_rsqrt_uniform']
         super().__init__()
         if d_block_per_expert is not None:
             num_experts = d_block // d_block_per_expert
@@ -375,9 +376,11 @@ class BMoE(nn.Module):
         self.default_num_samples = default_num_samples
         self.expert_type = expert_type
         self.adapter = adapter
+        self.adapter_init = adapter_init
         print(f'expert type:{expert_type}')
         print(f'gating type:{self.gating_type}')
         print(f'default num samples:{self.default_num_samples}')
+        print(f'adapter init: {adapter_init}')
         d_first = d_block // num_experts if d_in is None else d_in
 
         self.stat_alpha_sum = None
@@ -424,7 +427,10 @@ class BMoE(nn.Module):
             else:
                 requires_grad = True
             self.r = nn.Parameter(torch.empty(num_experts, d_first), requires_grad=requires_grad)
-            init_rsqrt_uniform_(self.r, d_first)  # TODO: probably it is not good init for centroids?
+            if self.adapter_init == 'init_rsqrt_uniform':
+                init_rsqrt_uniform_(self.r, d_first)  # TODO: probably it is not good init for centroids?
+            else:
+                nn.init.normal_(self.r)
 
     @torch.no_grad()
     def calculate_new_centroids(self, alpha: torch.Tensor, x_emb: torch.Tensor) -> None:
