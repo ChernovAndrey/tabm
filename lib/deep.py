@@ -339,7 +339,7 @@ class BMoE(nn.Module):
     def __init__(
             self,
             *,
-            lr : float,
+            lr: float,
             d_in: None | int = None,
             d_out: None | int = None,
             n_blocks: int,
@@ -506,21 +506,39 @@ class BMoE(nn.Module):
             for i in range(self.n_blocks + 1):
                 if i == 0 and self.adapter:
                     # Apply element-wise multiplication with broadcasting
-                    x_expanded = x.unsqueeze(1)  # (batch_size, 1, d_first)
-                    r_expanded = self.r.unsqueeze(0)  # (1, num_experts, d_first)
 
-                    x = x_expanded * r_expanded  # (batch_size, num_experts, d_first)
+                    if x.dim() == 2:
+                        x_expanded = x.unsqueeze(1)  # (batch_size, 1, d_first)
+                        r_expanded = self.r.unsqueeze(0)  # (1, num_experts, d_first)
+                    elif x.dim() == 3:
+                        # for tab-mini
+                        # x: batch_size, k, d_first -> batch_size, k, 1, d_first
+                        # r: num_experts, d_first ->    1, 1, num_experts, d_first
+                        # x_emb: batch_size, k, num_experts, d_first
+                        x_expanded = x.unsqueeze(2)
+                        r_expanded = self.r.unsqueeze(0).unsqueeze(0)
+                    else:
+                        assert False
+
+                    x = x_expanded * r_expanded  # (batch_size, num_experts, d_first) for not tabm-mini
                     if self.gating_type in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
-                        alpha = x.sum(dim=-1).sigmoid()  # (batch_size, num_experts, )
+                        alpha = x.sum(dim=-1).sigmoid()  # (batch_size, num_experts, ) or (batch_size, k, num_experts,)
                         alpha = alpha / alpha.sum(dim=-1, keepdim=True)
                         if self.gating_type == 'sigmoid_adapter_kmeans' and self.training:
                             self.calculate_new_centroids(alpha, x)
-                        alpha = alpha.transpose(-1, -2)
-
-                    x = x.permute(1, 0, 2)  # # (num_experts, batch_size, d_first)
-
+                        if alpha.dim() == 2:
+                            alpha = alpha.transpose(-1, -2)
+                        else:
+                            alpha = alpha.permute(2, 1, 0)
+                    if x.dim() == 3:
+                        x = x.permute(1, 0, 2)  # (num_experts, batch_size, d_first)
+                    else:
+                        x = x.permute(2, 1, 0, 3)  # (num_experts,  k,  batch_size, d_first)
                 # weights_i: num_experts, d_first, d_block
-                x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])  # TODO: Is just matmul not enough?
+                if x.dim() == 4:
+                    x = torch.matmul(x, self.Weights[i].unsqueeze(1))
+                else:
+                    x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])  # TODO: Is just matmul not enough?
 
                 if i < self.n_blocks:
                     x = self.activation(x)
@@ -544,7 +562,7 @@ class BMoE(nn.Module):
                 output = weighted_sums.mean(dim=0)
             else:
                 output = weighted_sums
-        return output
+        return output if output.dim() == 2 else output.permute(1, 0, 2)
 
     def get_kl_loss(self):
         """
