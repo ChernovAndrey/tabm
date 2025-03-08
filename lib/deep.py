@@ -553,12 +553,6 @@ class BMoE(nn.Module):
                             alpha = x.sum( # sum here does dot product between r and x
                                 dim=-1) #(batch_size, k, num_experts,)
 
-                            # Get top 4 indices along num_ensembles (dim=1)
-                            top_values, top_indices = torch.topk(alpha, k=self.top_k,
-                                                                 dim=1)  # (batch_size, top_k, num_experts)
-
-                            # Normalize alpha after extracting top-k to make it a probability distribution again
-                            alpha = top_values / top_values.sum(dim=-1, keepdim=True)  # Re-normalize
                             if self.training:
                                 gumbels = (
                                 -torch.empty_like(alpha)
