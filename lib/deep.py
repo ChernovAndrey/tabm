@@ -347,7 +347,8 @@ class BMoE(nn.Module):
             dropout: float,
             activation: str = 'ReLU',
             num_experts: None | int = None,
-            gating_type: Literal['standard', 'bayesian', 'sigmoid_adapter', 'sigmoid_adapter_kmeans'],
+            gating_type: Literal[
+                'standard', 'bayesian', 'sigmoid_adapter', 'sigmoid_adapter_kmeans', 'sigmoid_adapter_attention'],
             kl_factor: float = 1e-2,
             gating_prior_std: float = 1.0,
             d_block_per_expert: None | int = None,
@@ -355,10 +356,12 @@ class BMoE(nn.Module):
             tau: float = 1.0,
             expert_type: Literal['MLP', 'gMLP'] = 'MLP',
             adapter: bool = False,
-            adapter_init: Literal['normal', 'init_rsqrt_uniform'] = 'init_rsqrt_uniform'
+            adapter_init: Literal['normal', 'init_rsqrt_uniform'] = 'init_rsqrt_uniform',
+            q_dim: None | int = 32  # for attention
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
-        assert gating_type in ['standard', 'bayesian', 'sigmoid_adapter', 'sigmoid_adapter_kmeans']
+        assert gating_type in ['standard', 'bayesian', 'sigmoid_adapter', 'sigmoid_adapter_kmeans',
+                               'sigmoid_adapter_attention']
         assert expert_type in ['MLP', 'gMLP']
         assert adapter_init in ['normal', 'init_rsqrt_uniform']
         super().__init__()
@@ -377,6 +380,7 @@ class BMoE(nn.Module):
         self.expert_type = expert_type
         self.adapter = adapter
         self.adapter_init = adapter_init
+        self.q_dim = q_dim
         print(f'expert type:{expert_type}')
         print(f'gating type:{self.gating_type}')
         print(f'default num samples:{self.default_num_samples}')
@@ -415,7 +419,7 @@ class BMoE(nn.Module):
             #     device=self.device,
             # )
             self.gate = GumbelGatingNetwork(d_first, num_experts, tau=tau, device=device)
-        elif self.gating_type not in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
+        elif self.gating_type not in ('sigmoid_adapter', 'sigmoid_adapter_kmeans', 'sigmoid_adapter_attention'):
             raise ValueError(f'The gating type "{self.gating_type}" is not supported.')
 
         if self.adapter:
@@ -431,6 +435,11 @@ class BMoE(nn.Module):
                 init_rsqrt_uniform_(self.r, d_first)  # TODO: probably it is not good init for centroids?
             else:
                 nn.init.normal_(self.r)
+
+            if self.gating_type == 'sigmoid_adapter_attention':
+                assert self.q_dim is not None
+                self.Q = nn.Parameter(torch.empty(q_dim, d_first), requires_grad=requires_grad)
+                init_rsqrt_uniform_(self.Q, d_first)
 
     @torch.no_grad()
     def calculate_new_centroids(self, alpha: torch.Tensor, x_emb: torch.Tensor) -> None:
@@ -489,12 +498,13 @@ class BMoE(nn.Module):
         """
         # print(f'num samples:{num_samples}')
         # TODO: improve code clarity
-        if self.training or self.gating_type in ['standard', 'sigmoid_adapter', 'sigmoid_adapter_kmeans']:
+        if self.training or self.gating_type in ['standard', 'sigmoid_adapter', 'sigmoid_adapter_kmeans',
+                                                 'sigmoid_adapter_attention']:
             num_samples = 1
         elif num_samples is None:
             num_samples = self.default_num_samples
 
-        if self.gating_type not in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
+        if self.gating_type not in ('sigmoid_adapter', 'sigmoid_adapter_kmeans', 'sigmoid_adapter_attention'):
             if self.training or num_samples < 2 or self.gating_type == 'standard':
                 # [batch_size, num_experts] -> [num_experts, batch_size]
                 alpha = self.gate(x, num_samples=num_samples) if self.gating_type == 'bayesian' \
@@ -511,35 +521,46 @@ class BMoE(nn.Module):
         if self.expert_type == 'MLP':
             for i in range(self.n_blocks + 1):
                 if i == 0 and self.adapter:
-                    # Apply element-wise multiplication with broadcasting
-
-                    if x.dim() == 2:
-                        x_expanded = x.unsqueeze(1)  # (batch_size, 1, d_first)
-                        r_expanded = self.r.unsqueeze(0)  # (1, num_experts, d_first)
-                    elif x.dim() == 3:
-                        # for tab-mini
-                        # x: batch_size, k, d_first -> batch_size, k, 1, d_first
-                        # r: num_experts, d_first ->    1, 1, num_experts, d_first
-                        # x_emb: batch_size, k, num_experts, d_first
-                        x_expanded = x.unsqueeze(2)
-                        r_expanded = self.r.unsqueeze(0).unsqueeze(0)
+                    if self.gating_type == 'sigmoid_adapter_attention':
+                        x_emb = x[:, None].expand(-1, self.q_dim, -1)  # (B, d_first) -> (B, q_dim, d_first)
+                        q_emb = x_emb * self.Q  # (B, q_dim, d_first)
+                        # (1, num_experts, d_first) @ (B, d_first, q_dim) -> (B, num_experts, q_dim)
+                        s = torch.matmul(self.r.unsqueeze(0), q_emb.permute(0, 2, 1)).sigmoid()
+                        s_sum = s.sum(-1)
+                        alpha = s_sum / s_sum.sum(-1, keepdim=True)  # (B, num_experts)
+                        alpha = alpha.transpose(-1, -2)
+                        s = s / s_sum.unsqueeze(-1)  # (B, num_experts, q_dim)
+                        x = torch.matmul(s, x_emb).permute(1, 0, 2)  # (num_experts, B, d_first)
                     else:
-                        assert False
-
-                    x = x_expanded * r_expanded  # (batch_size, num_experts, d_first) for not tabm-mini
-                    if self.gating_type in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
-                        alpha = x.sum(dim=-1).sigmoid()  # (batch_size, num_experts, ) or (batch_size, k, num_experts,)
-                        alpha = alpha / alpha.sum(dim=-1, keepdim=True)
-                        if self.gating_type == 'sigmoid_adapter_kmeans' and self.training:
-                            self.calculate_new_centroids(alpha, x)
-                        if alpha.dim() == 2:
-                            alpha = alpha.transpose(-1, -2)
+                        # Apply element-wise multiplication with broadcasting
+                        if x.dim() == 2:
+                            x_expanded = x.unsqueeze(1)  # (batch_size, 1, d_first)
+                            r_expanded = self.r.unsqueeze(0)  # (1, num_experts, d_first)
+                        elif x.dim() == 3:
+                            # for tab-mini
+                            # x: batch_size, k, d_first -> batch_size, k, 1, d_first
+                            # r: num_experts, d_first ->    1, 1, num_experts, d_first
+                            # x_emb: batch_size, k, num_experts, d_first
+                            x_expanded = x.unsqueeze(2)
+                            r_expanded = self.r.unsqueeze(0).unsqueeze(0)
                         else:
-                            alpha = alpha.permute(2, 1, 0)
-                    if x.dim() == 3:
-                        x = x.permute(1, 0, 2)  # (num_experts, batch_size, d_first)
-                    else:
-                        x = x.permute(2, 1, 0, 3)  # (num_experts,  k,  batch_size, d_first)
+                            assert False
+
+                        x = x_expanded * r_expanded  # (batch_size, num_experts, d_first) for not tabm-mini
+                        if self.gating_type in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
+                            alpha = x.sum(
+                                dim=-1).sigmoid()  # (batch_size, num_experts, ) or (batch_size, k, num_experts,)
+                            alpha = alpha / alpha.sum(dim=-1, keepdim=True)
+                            if self.gating_type == 'sigmoid_adapter_kmeans' and self.training:
+                                self.calculate_new_centroids(alpha, x)
+                            if alpha.dim() == 2:
+                                alpha = alpha.transpose(-1, -2)
+                            else:
+                                alpha = alpha.permute(2, 1, 0)
+                        if x.dim() == 3:
+                            x = x.permute(1, 0, 2)  # (num_experts, batch_size, d_first)
+                        else:
+                            x = x.permute(2, 1, 0, 3)  # (num_experts,  k,  batch_size, d_first)
                 # weights_i: num_experts, d_first, d_block
                 if x.dim() == 4:
                     x = torch.matmul(x, self.Weights[i].unsqueeze(1))
