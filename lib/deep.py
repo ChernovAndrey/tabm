@@ -570,7 +570,7 @@ class BMoE(nn.Module):
                                 gumbels = 0.
                             _, top_indices = torch.topk(alpha + gumbels, k=self.top_k,
                                                                  dim=1)  # (batch_size, top_k, num_experts)
-                            alpha = torch.gather(alpha, dim=1, index=top_indices).softmax(dim=-1)
+                            alpha = torch.gather(alpha, dim=1, index=top_indices).softmax(dim=-1).permute(2, 1, 0)
                             # Expand indices using None indexing
                             expanded_indices = top_indices[..., None].expand(-1, -1, -1,
                                                                              x.shape[-1])  # (batch_size, top_k, num_experts, d_first)
@@ -579,7 +579,7 @@ class BMoE(nn.Module):
                             x = torch.gather(x, dim=1,
                                              index=expanded_indices)  # (batch_size, top_k, num_experts, d_first)
 
-                        if self.gating_type in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
+                        elif self.gating_type in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
                             alpha = x.sum(
                                 dim=-1).sigmoid()  # (batch_size, num_experts, ) or (batch_size, k, num_experts,)
                             alpha = alpha / alpha.sum(dim=-1, keepdim=True)
