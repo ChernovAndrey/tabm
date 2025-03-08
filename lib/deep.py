@@ -357,7 +357,8 @@ class BMoE(nn.Module):
             expert_type: Literal['MLP', 'gMLP'] = 'MLP',
             adapter: bool = False,
             adapter_init: Literal['normal', 'init_rsqrt_uniform'] = 'init_rsqrt_uniform',
-            q_dim: None | int = 32  # for attention
+            q_dim: None | int = 32,  # for attention
+            top_k : None | int = None # if provided it means that it is a tabm-mini with top_k
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
         assert gating_type in ['standard', 'bayesian', 'sigmoid_adapter', 'sigmoid_adapter_kmeans',
@@ -381,6 +382,7 @@ class BMoE(nn.Module):
         self.adapter = adapter
         self.adapter_init = adapter_init
         self.q_dim = q_dim
+        self.top_k = top_k
         print(f'expert type:{expert_type}')
         print(f'gating type:{self.gating_type}')
         print(f'default num samples:{self.default_num_samples}')
@@ -541,12 +543,42 @@ class BMoE(nn.Module):
                             # x: batch_size, k, d_first -> batch_size, k, 1, d_first
                             # r: num_experts, d_first ->    1, 1, num_experts, d_first
                             # x_emb: batch_size, k, num_experts, d_first
-                            x_expanded = x.unsqueeze(2)
-                            r_expanded = self.r.unsqueeze(0).unsqueeze(0)
+                            x_expanded = x[:, :, None] # unsqueeze(2)
+                            r_expanded = self.r[None, None] # unsqueeze(0,0)
                         else:
                             assert False
 
                         x = x_expanded * r_expanded  # (batch_size, num_experts, d_first) for not tabm-mini
+                        if self.top_k is not None and x.dim() == 4:
+                            alpha = x.sum( # sum here does dot product between r and x
+                                dim=-1) #(batch_size, k, num_experts,)
+
+                            # Get top 4 indices along num_ensembles (dim=1)
+                            top_values, top_indices = torch.topk(alpha, k=self.top_k,
+                                                                 dim=1)  # (batch_size, top_k, num_experts)
+
+                            # Normalize alpha after extracting top-k to make it a probability distribution again
+                            alpha = top_values / top_values.sum(dim=-1, keepdim=True)  # Re-normalize
+                            if self.training:
+                                gumbels = (
+                                -torch.empty_like(alpha)
+                                .exponential_()
+                                .log()
+                                ) # taken from pytorch implementation
+                                # alpha = alpha + gumbels # i.e. tau=1
+                            else:
+                                gumbels = 0.
+                            _, top_indices = torch.topk(alpha + gumbels, k=self.top_k,
+                                                                 dim=1)  # (batch_size, top_k, num_experts)
+                            alpha = torch.gather(alpha, dim=1, index=top_indices).softmax(dim=-1)
+                            # Expand indices using None indexing
+                            expanded_indices = top_indices[..., None].expand(-1, -1, -1,
+                                                                             x.shape[-1])  # (batch_size, top_k, num_experts, d_first)
+
+                            # Gather from x using the top-k indices
+                            x = torch.gather(x, dim=1,
+                                             index=expanded_indices)  # (batch_size, top_k, num_experts, d_first)
+
                         if self.gating_type in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
                             alpha = x.sum(
                                 dim=-1).sigmoid()  # (batch_size, num_experts, ) or (batch_size, k, num_experts,)
