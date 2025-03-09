@@ -506,7 +506,6 @@ class BMoE(nn.Module):
         elif num_samples is None:
             num_samples = self.default_num_samples
 
-        assert num_samples == 1, 'num samples is redundant feature'
         if self.gating_type not in ('sigmoid_adapter', 'sigmoid_adapter_kmeans', 'sigmoid_adapter_attention'):
             if self.training or num_samples < 2 or self.gating_type == 'standard':
                 # [batch_size, num_experts] -> [num_experts, batch_size]
