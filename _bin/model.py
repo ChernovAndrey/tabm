@@ -590,6 +590,13 @@ def main(
 
     print()
     if config.get('do_train', True):
+    # # ✅ Full CPU Profiling: Forward + Backward + Optimizer
+    # with torch.profiler.profile(
+    #         activities=[torch.profiler.ProfilerActivity.CPU],  # Only profile CPU
+    #         record_shapes=True,
+    #         profile_memory=True,
+    #         with_stack=True
+    # ) as prof:
         timer.run()
         while config['n_epochs'] == -1 or step // epoch_size < config['n_epochs']:
             print(f'[...] {lib.try_get_relative_path(output)} | {timer}')
@@ -704,6 +711,7 @@ def main(
         report['time'] = str(timer)
 
     # >>>
+    # print(prof.key_averages().table(sort_by="cpu_time_total", row_limit=15))
     if lib.get_checkpoint_path(output).exists():
         model.load_state_dict(lib.load_checkpoint(output)['model'])
     report['metrics'], predictions, head_predictions, _ = evaluate(

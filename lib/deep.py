@@ -358,7 +358,7 @@ class BMoE(nn.Module):
             adapter: bool = False,
             adapter_init: Literal['normal', 'init_rsqrt_uniform'] = 'init_rsqrt_uniform',
             q_dim: None | int = 32,  # for attention
-            top_k : None | int = None # if provided it means that it is a tabm-mini with top_k
+            top_k: None | int = None  # if provided it means that it is a tabm-mini with top_k
     ) -> None:
         assert d_out is not None, "the output layer must be added to the MoE"
         assert gating_type in ['standard', 'bayesian', 'sigmoid_adapter', 'sigmoid_adapter_kmeans',
@@ -506,6 +506,7 @@ class BMoE(nn.Module):
         elif num_samples is None:
             num_samples = self.default_num_samples
 
+        assert num_samples == 1, 'num samples is redundant feature'
         if self.gating_type not in ('sigmoid_adapter', 'sigmoid_adapter_kmeans', 'sigmoid_adapter_attention'):
             if self.training or num_samples < 2 or self.gating_type == 'standard':
                 # [batch_size, num_experts] -> [num_experts, batch_size]
@@ -524,6 +525,7 @@ class BMoE(nn.Module):
             for i in range(self.n_blocks + 1):
                 if i == 0 and self.adapter:
                     if self.gating_type == 'sigmoid_adapter_attention':
+                        assert False, 'it is redundant'
                         x_emb = x[:, None].expand(-1, self.q_dim, -1)  # (B, d_first) -> (B, q_dim, d_first)
                         q_emb = x_emb * self.Q  # (B, q_dim, d_first)
                         # (1, num_experts, d_first) @ (B, d_first, q_dim) -> (B, num_experts, q_dim)
@@ -543,31 +545,32 @@ class BMoE(nn.Module):
                             # x: batch_size, k, d_first -> batch_size, k, 1, d_first
                             # r: num_experts, d_first ->    1, 1, num_experts, d_first
                             # x_emb: batch_size, k, num_experts, d_first
-                            x_expanded = x[:, :, None] # unsqueeze(2)
-                            r_expanded = self.r[None, None] # unsqueeze(0,0)
+                            x_expanded = x[:, :, None]  # unsqueeze(2)
+                            r_expanded = self.r[None, None]  # unsqueeze(0,0)
                         else:
                             assert False
 
                         x = x_expanded * r_expanded  # (batch_size, num_experts, d_first) for not tabm-mini
                         if self.top_k is not None and x.dim() == 4:
-                            alpha = x.sum( # sum here does dot product between r and x
-                                dim=-1) #(batch_size, k, num_experts,)
+                            alpha = x.sum(  # sum here does dot product between r and x
+                                dim=-1)  # (batch_size, k, num_experts,)
 
                             if self.training:
                                 gumbels = (
-                                -torch.empty_like(alpha)
-                                .exponential_()
-                                .log()
-                                ) # taken from pytorch implementation
+                                    -torch.empty_like(alpha)
+                                    .exponential_()
+                                    .log()
+                                )  # taken from pytorch implementation
                                 # alpha = alpha + gumbels # i.e. tau=1
                             else:
                                 gumbels = 0.
                             _, top_indices = torch.topk(alpha + gumbels, k=self.top_k,
-                                                                 dim=1)  # (batch_size, top_k, num_experts)
+                                                        dim=1)  # (batch_size, top_k, num_experts)
                             alpha = torch.gather(alpha, dim=1, index=top_indices).softmax(dim=-1).permute(2, 1, 0)
                             # Expand indices using None indexing
                             expanded_indices = top_indices[..., None].expand(-1, -1, -1,
-                                                                             x.shape[-1])  # (batch_size, top_k, num_experts, d_first)
+                                                                             x.shape[
+                                                                                 -1])  # (batch_size, top_k, num_experts, d_first)
 
                             # Gather from x using the top-k indices
                             x = torch.gather(x, dim=1,
@@ -589,7 +592,8 @@ class BMoE(nn.Module):
                             x = x.permute(2, 1, 0, 3)  # (num_experts,  k,  batch_size, d_first)
                 # weights_i: num_experts, d_first, d_block
                 if x.dim() == 4:
-                    x = torch.matmul(x, self.Weights[i][:, None])
+                    # x = torch.matmul(x, self.Weights[i][:, None])
+                    x =  torch.einsum('ekbd,edi->ekbi', x, self.Weights[i])
                 else:
                     x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])  # TODO: Is just matmul not enough?
 
