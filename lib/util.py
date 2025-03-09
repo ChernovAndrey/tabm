@@ -385,7 +385,7 @@ def print_config(config: dict) -> None:
 #             for sub_key, sub_value in value.items():
 #                 print(f"  {sub_key}: {sub_value}")
 
-def print_metrics(loss: float, metrics: dict) -> None:
+def print_metrics(loss: float, mean_loss_kl:float, metrics: dict) -> None:
     print(
         f'(val) {metrics["val"]["score"]:.3f}'
         f' (test) {metrics["test"]["score"]:.3f}'
