@@ -163,7 +163,7 @@ class Model(nn.Module):
         if backbone['type'] in ['BMoE', 'BMoIE', 'DeepBMoE']:
             d_out = 1 if n_classes is None else n_classes
         else:
-            assert False, 'checker'
+            # assert False, 'checker'
             d_out = None
         self.backbone = lib.deep.make_module(d_in=d_flat, **backbone, d_out=d_out, lr=lr)
 
@@ -217,7 +217,7 @@ class Model(nn.Module):
         if backbone['type'] in ['BMoE', 'BMoIE', 'DeepBMoE']:
             self.output = None
         else:
-            assert False, 'checker'
+            # assert False, 'checker'
             d_block = backbone['d_block']
             d_out = 1 if n_classes is None else n_classes
             self.output = (
