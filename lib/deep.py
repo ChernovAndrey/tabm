@@ -589,7 +589,7 @@ class BMoE(nn.Module):
                             x = x.permute(2, 1, 0, 3)  # (num_experts,  k,  batch_size, d_first)
                 # weights_i: num_experts, d_first, d_block
                 if x.dim() == 4:
-                    x = torch.matmul(x, self.Weights[i].unsqueeze(1))
+                    x = torch.matmul(x, self.Weights[i][:, None])
                 else:
                     x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])  # TODO: Is just matmul not enough?
 

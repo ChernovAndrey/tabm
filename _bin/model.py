@@ -672,6 +672,7 @@ def main(
                         writer.add_scalars(
                             f'score, num_samples={k}', {part: metrics[k][part]['score']}, step, timer.elapsed()
                         )
+                    print(f'max samples: {max_samples}')
                     max_samples = str(config['num_samples'])
                     print(metrics[max_samples])
                     val_metric = metrics[max_samples]['val']['score']

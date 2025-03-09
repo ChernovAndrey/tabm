@@ -360,30 +360,37 @@ def print_config(config: dict) -> None:
 #     )
 #     print(output)
 
-def print_metrics(loss: float, kl_loss: float, metrics: dict) -> None:
-    output = ""
-    # Add metrics for 'train', 'val', and 'test' if they exist
-    if 'train' in metrics:
-        output += f'(train) {metrics["train"]["score"]:.3f} '
+# def print_metrics(loss: float, kl_loss: float, metrics: dict) -> None:
+#     output = ""
+#     # Add metrics for 'train', 'val', and 'test' if they exist
+#     if 'train' in metrics:
+#         output += f'(train) {metrics["train"]["score"]:.3f} '
+#
+#     if 'val' in metrics:
+#         output += f'(val) {metrics["val"]["score"]:.3f} '
+#
+#     if 'test' in metrics:
+#         output += f'(test) {metrics["test"]["score"]:.3f} '
+#
+#     # Add loss and kl_loss
+#     output += f'(loss) {loss:.5f} (kl_loss) {kl_loss:.5f}'
+#
+#     # Print the final output
+#     print(output)
+#
+#     # Handle cases where metrics are a dict of dicts
+#     for key, value in metrics.items():
+#         if isinstance(value, dict):
+#             print(f"Metrics for {key}:")
+#             for sub_key, sub_value in value.items():
+#                 print(f"  {sub_key}: {sub_value}")
 
-    if 'val' in metrics:
-        output += f'(val) {metrics["val"]["score"]:.3f} '
-
-    if 'test' in metrics:
-        output += f'(test) {metrics["test"]["score"]:.3f} '
-
-    # Add loss and kl_loss
-    output += f'(loss) {loss:.5f} (kl_loss) {kl_loss:.5f}'
-
-    # Print the final output
-    print(output)
-
-    # Handle cases where metrics are a dict of dicts
-    for key, value in metrics.items():
-        if isinstance(value, dict):
-            print(f"Metrics for {key}:")
-            for sub_key, sub_value in value.items():
-                print(f"  {sub_key}: {sub_value}")
+def print_metrics(loss: float, metrics: dict) -> None:
+    print(
+        f'(val) {metrics["val"]["score"]:.3f}'
+        f' (test) {metrics["test"]["score"]:.3f}'
+        f' (loss) {loss:.5f}'
+    )
 
 
 def log_scores(metrics: dict) -> None:
