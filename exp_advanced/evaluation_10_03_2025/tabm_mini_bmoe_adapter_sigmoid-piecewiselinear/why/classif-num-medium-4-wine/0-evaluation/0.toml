@@ -1,0 +1,36 @@
+seed = 0
+batch_size = 32
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/classif-num-medium-4-wine"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.00041430111153659534
+weight_decay = 0.0024080197112870527
+
+[model]
+arch_type = "tabm-mini"
+k = 32
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 1
+d_block = 1216
+dropout = 0.2565800173325672
+d_block_per_expert = 32
+adapter = true
+gating_type = "sigmoid_adapter"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 32
+
+[bins]
+n_bins = 20

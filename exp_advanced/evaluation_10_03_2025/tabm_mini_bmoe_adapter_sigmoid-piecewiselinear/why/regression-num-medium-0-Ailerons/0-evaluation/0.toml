@@ -1,0 +1,36 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/regression-num-medium-0-Ailerons"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.00892967123691367
+weight_decay = 0.02122054600428301
+
+[model]
+arch_type = "tabm-mini"
+k = 32
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 1
+d_block = 128
+dropout = 0.36945956424652215
+d_block_per_expert = 64
+adapter = true
+gating_type = "sigmoid_adapter"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 24
+
+[bins]
+n_bins = 101
