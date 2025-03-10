@@ -576,8 +576,15 @@ class BMoE(nn.Module):
                                              index=expanded_indices)  # (batch_size, top_k, num_experts, d_first)
 
                         elif self.gating_type in ('sigmoid_adapter', 'sigmoid_adapter_kmeans'):
+                            if x.dim() == 4:
+                                do_reshape = True
+                                B, k = x.shape[0], x.shape[1]
+                                x = x.view(B * k, *x.shape[2:])
+                            else:
+                                do_reshape = False
+
                             alpha = x.sum(
-                                dim=-1).sigmoid()  # (batch_size, num_experts, ) or (batch_size, k, num_experts,)
+                                dim=-1).sigmoid()  # (batch_size*k, num_experts, ) or (batch_size, k, num_experts,)
                             alpha = alpha / alpha.sum(dim=-1, keepdim=True)
                             if self.gating_type == 'sigmoid_adapter_kmeans' and self.training:
                                 self.calculate_new_centroids(alpha, x)
@@ -585,6 +592,7 @@ class BMoE(nn.Module):
                                 alpha = alpha.transpose(-1, -2)
                             else:
                                 alpha = alpha.permute(2, 1, 0)
+
                         if x.dim() == 3:
                             x = x.permute(1, 0, 2)  # (num_experts, batch_size, d_first)
                         else:
@@ -592,7 +600,7 @@ class BMoE(nn.Module):
                 # weights_i: num_experts, d_first, d_block
                 if x.dim() == 4:
                     # x = torch.matmul(x, self.Weights[i][:, None])
-                    x =  torch.einsum('ekbd,edi->ekbi', x, self.Weights[i])
+                    x = torch.einsum('ekbd,edi->ekbi', x, self.Weights[i])
                 else:
                     x = torch.einsum('...nd,...dh->...nh', x, self.Weights[i])  # TODO: Is just matmul not enough?
 
@@ -607,7 +615,12 @@ class BMoE(nn.Module):
 
         if self.training or num_samples < 2 or self.gating_type == 'standard':
             output = torch.sum(alpha.unsqueeze(-1) * x, dim=0 if self.expert_type == 'MLP' else 1)
+            if do_reshape:
+                output = output.view(B, k, *output.shape[1:])
+            elif output.dim() == 3:
+                output = output.permute(1, 0, 2)
         else:
+            assert do_reshape == False
             # EVAL MODE (Bayesian ensemble)
             weighted_expert_outputs = alpha.unsqueeze(-1) * x.unsqueeze(0)
             # 4) Sum over experts => [10, batch_size, output_dim]
@@ -618,7 +631,7 @@ class BMoE(nn.Module):
                 output = weighted_sums.mean(dim=0)
             else:
                 output = weighted_sums
-        return output if output.dim() == 2 else output.permute(1, 0, 2)
+        return output
 
     def get_kl_loss(self):
         """
