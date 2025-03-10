@@ -436,13 +436,14 @@ def is_oom_exception(err: RuntimeError) -> bool:
 # ======================================================================================
 # Other
 # ======================================================================================
-def configure_libraries():
-    torch = _torch()
-    torch.set_num_threads(1)
-    torch.backends.cuda.matmul.allow_tf32 = False  # type: ignore[code]
-    torch.backends.cudnn.allow_tf32 = False  # type: ignore[code]
-    torch.backends.cudnn.benchmark = False  # type: ignore[code]
-    torch.backends.cudnn.deterministic = True  # type: ignore[code]
+def configure_libraries(setup_pytorch: bool = True):
+    if setup_pytorch:
+        torch = _torch()
+        torch.set_num_threads(1)
+        torch.backends.cuda.matmul.allow_tf32 = False  # type: ignore[code]
+        torch.backends.cudnn.allow_tf32 = False  # type: ignore[code]
+        torch.backends.cudnn.benchmark = False  # type: ignore[code]
+        torch.backends.cudnn.deterministic = True  # type: ignore[code]
 
     logger.remove()
     logger.add(sys.stderr, format='<level>{message}</level>')

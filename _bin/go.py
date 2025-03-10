@@ -49,8 +49,7 @@ def main(
 
 
 if __name__ == '__main__':
-    lib.configure_libraries()
-
+    lib.configure_libraries(False)
     parser = argparse.ArgumentParser()
     parser.add_argument('path')
     parser.add_argument('--n_seeds', type=int, default=_bin.evaluate.DEFAULT_N_SEEDS)
