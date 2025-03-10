@@ -222,7 +222,5 @@ def main(
 
 
 if __name__ == '__main__':
-    # lib.configure_libraries()
-    logger.remove()
-    logger.add(sys.stderr, format='<level>{message}</level>')
+    lib.configure_libraries()
     lib.run(main)
