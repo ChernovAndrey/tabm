@@ -1,0 +1,36 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/classif-num-medium-0-bank-marketing"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "Adam"
+lr = 0.006550175495281421
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 3
+d_block = 1024
+dropout = 0.0
+d_block_per_expert = 64
+gating_prior_std = 0.7961658989132141
+kl_factor = 0.8290419393507915
+default_num_samples = 5
+gating_type = "bayesian"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 24
+
+[bins]
+n_bins = 69

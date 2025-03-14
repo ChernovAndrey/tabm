@@ -1,0 +1,37 @@
+seed = 0
+batch_size = 512
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/black-friday"
+num_policy = "noisy-quantile"
+cat_policy = "ordinal"
+
+[optimizer]
+type = "AdamW"
+lr = 0.00039521210565810107
+weight_decay = 0.0
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 1
+d_block = 704
+dropout = 0.3370982160847282
+d_block_per_expert = 64
+default_num_samples = 10
+tau = 2.9013971061172437
+gating_type = "bayesian"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 32
+
+[bins]
+n_bins = 98

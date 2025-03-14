@@ -1,0 +1,37 @@
+seed = 0
+batch_size = 512
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/regression-cat-large-0-nyc-taxi-green-dec-2016"
+num_policy = "noisy-quantile"
+cat_policy = "ordinal"
+
+[optimizer]
+type = "AdamW"
+lr = 0.000327852694589931
+weight_decay = 0.000737683616213685
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 4
+d_block = 1280
+dropout = 0.10808188171165317
+d_block_per_expert = 64
+default_num_samples = 10
+tau = 2.0585274681316226
+gating_type = "bayesian"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 8
+
+[bins]
+n_bins = 117

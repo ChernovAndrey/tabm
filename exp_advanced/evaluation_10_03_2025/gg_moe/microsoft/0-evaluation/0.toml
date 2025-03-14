@@ -1,0 +1,36 @@
+seed = 0
+batch_size = 1024
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/microsoft"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.00041489419498205986
+weight_decay = 0.015284435420140862
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 4
+d_block = 896
+dropout = 0.03271720470114521
+d_block_per_expert = 64
+default_num_samples = 10
+tau = 2.4104083944229813
+gating_type = "bayesian"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 12
+
+[bins]
+n_bins = 21
