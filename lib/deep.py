@@ -500,12 +500,12 @@ class BMoE(nn.Module):
         """
         # print(f'num samples:{num_samples}')
         # TODO: improve code clarity
+        do_reshape = False
         if self.training or self.gating_type in ['standard', 'sigmoid_adapter', 'sigmoid_adapter_kmeans',
                                                  'sigmoid_adapter_attention']:
             num_samples = 1
         elif num_samples is None:
             num_samples = self.default_num_samples
-
         if self.gating_type not in ('sigmoid_adapter', 'sigmoid_adapter_kmeans', 'sigmoid_adapter_attention'):
             if self.training or num_samples < 2 or self.gating_type == 'standard':
                 # [batch_size, num_experts] -> [num_experts, batch_size]
