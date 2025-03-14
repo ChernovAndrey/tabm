@@ -1,0 +1,35 @@
+seed = 0
+batch_size = 64
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/regression-cat-medium-3-analcatdata_supreme"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.0003837552247819552
+weight_decay = 0.002743300099901519
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 3
+d_block = 192
+dropout = 0.0
+d_block_per_expert = 64
+adapter = true
+gating_type = "sigmoid_adapter"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 20
+
+[bins]
+n_bins = 121

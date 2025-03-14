@@ -1,0 +1,35 @@
+seed = 0
+batch_size = 256
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/classif-num-medium-0-credit"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.0005773462294421785
+weight_decay = 0.007089701392154844
+
+[model]
+arch_type = "plain"
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 3
+d_block = 512
+dropout = 0.0
+d_block_per_expert = 64
+adapter = true
+gating_type = "sigmoid_adapter"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 8
+
+[bins]
+n_bins = 15
