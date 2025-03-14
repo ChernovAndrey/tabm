@@ -1,0 +1,36 @@
+seed = 0
+batch_size = 32
+patience = 16
+n_epochs = -1
+gradient_clipping_norm = 1.0
+amp = true
+
+[data]
+cache = true
+path = "data/classif-num-medium-4-phoneme"
+num_policy = "noisy-quantile"
+
+[optimizer]
+type = "AdamW"
+lr = 0.004210485210279089
+weight_decay = 0.0
+
+[model]
+arch_type = "tabm-mini"
+k = 32
+
+[model.backbone]
+type = "BMoE"
+n_blocks = 4
+d_block = 1024
+dropout = 0.49665410587961295
+d_block_per_expert = 64
+adapter = true
+gating_type = "sigmoid_adapter"
+
+[model.num_embeddings]
+type = "PiecewiseLinearEmbeddings"
+d_embedding = 32
+
+[bins]
+n_bins = 111
