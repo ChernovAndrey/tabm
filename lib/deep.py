@@ -501,6 +501,11 @@ class BMoE(nn.Module):
         # print(f'num samples:{num_samples}')
         # TODO: improve code clarity
         do_reshape = False
+        if self.gating_type == 'bayesian' and x.dim() == 3:
+            do_reshape = True
+            B, k = x.shape[0], x.shape[1]
+            x = x.view(B * k, x.shape[2])
+
         if self.training or self.gating_type in ['standard', 'sigmoid_adapter', 'sigmoid_adapter_kmeans',
                                                  'sigmoid_adapter_attention']:
             num_samples = 1
@@ -626,16 +631,18 @@ class BMoE(nn.Module):
             elif output.dim() == 3:
                 output = output.permute(1, 0, 2)
         else:
-            assert do_reshape == False
             # EVAL MODE (Bayesian ensemble)
             weighted_expert_outputs = alpha.unsqueeze(-1) * x.unsqueeze(0)
             # 4) Sum over experts => [10, batch_size, output_dim]
             weighted_sums = torch.sum(weighted_expert_outputs, dim=1 if self.expert_type == 'MLP' else 2)
-
             # [ num_samples, batch_size, output_dim]
+
             if return_average:
                 output = weighted_sums.mean(dim=0)
+                if do_reshape:
+                    output = output.view(B, k, *output.shape[1:])
             else:
+                assert not do_reshape
                 output = weighted_sums
         return output
 
