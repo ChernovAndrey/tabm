@@ -39,7 +39,16 @@ def create_config(json_file: str, output: str, gating_type: str, model_type: str
 
     config = data['best']['config']
 
-    if model_type == 'mlp':
+    if model_type in ['mlp', 'gg_moe_no_sampling', 'tabm_mini']:
+        dump_config(output, config)
+        print(f"Converted {json_file} to {output} successfully!")
+        return
+
+    if model_type == 'tabm_mini_bmoe_adapter_sigmoid-piecewiselinear':
+        config['model']['arch_type'] = 'tabm-mini'
+        config['model']['k'] = 32
+        # arch_type = "tabm-mini"
+        # k = 32
         dump_config(output, config)
         print(f"Converted {json_file} to {output} successfully!")
         return
@@ -59,10 +68,10 @@ def create_config(json_file: str, output: str, gating_type: str, model_type: str
         config['num_samples'] = 100
         config['model']['backbone']['gating_type'] = 'bayesian'
         config['return_average'] = False
-        config['model']['backbone']["default_num_samples"] = 5
+        config['model']['backbone']["default_num_samples"] = 10
     else:
         config['model']['backbone']['gating_type'] = 'standard'
-    dump_config(output, config)
+    dump_config(output, config, force=True)
 
     print(f"Converted {json_file} to {output} successfully!")
 
@@ -73,20 +82,36 @@ def find_matching_files(target_folder, pattern="*/0-tuning/report.json"):
     return matching_files
 
 
-from os.path import join
-
 if __name__ == '__main__':
     # Input and output file paths
 
-    # input_folder = 'exp/results/evaluation_15_04_2024/moe/'
-    # output_folder = "exp/results/evaluation_16_04_2024/gumbel_moe/"
-    input_folder = 'exp/results/tuning_x2/moe/'
-    output_folder = "exp/results/evaluation_x2/moe/"
-    model_type = 'moe'
-    gating_type = 'standard' if model_type == 'moe' else 'bayesian'
-    # input_folder = 'exp/mlp/'
-    # output_folder = "exp/results/evaluation_16_04_2024/mlp/"
+    # model_type = 'mlp'
+    model_type = 'gg_moe_no_sampling'
+    # model_type = 'tabm_mini'
+    # model_type = 'moe_adapter_sigmoid'
+    # model_type = 'tabm_mini_bmoe_adapter_sigmoid-piecewiselinear'
+    # input_folder = 'exp/results/evaluation_15_04_2024/moe-piecewiselinear'
+    # input_folder = 'exp/results/gumbel_tuning_results/bmoe-piecewiselinear'
+    # input_folder = 'exp/results/gumbel_tuning_results/bmoe-piecewiselinear'
+    # input_folder = 'exp_advanced/results/bmoe_adapter_sigmoid-piecewiselinear/'
+    # input_folder = 'exp/mlp-piecewiselinear/'
 
+    # input_folder = 'exp/tabm-mini-piecewiselinear/'
+    # input_folder = 'exp_advanced/results/bmoe_adapter_sigmoid_tabm_mini-piecewiselinear/'
+    input_folder = 'exp_advanced/results/bmoe_adapter_sigmoid-piecewiselinear/'
+
+
+    # output_folder = "exp/results/evaluation_16_04_2024/moe-piecewiselinear/"
+    # output_folder = "exp_advanced/evaluation_10_03_2025/tabm-mini-piecewiselinear/"
+    output_folder = "exp_advanced/evaluation_10_03_2025/bmoe_adapter_sigmoid_piecewiselinear/"
+    # model_type = 'moe'
+
+    # input_folder = 'exp/results/gumbel_tuning_results/bmoe-piecewiselinear/'
+    # output_folder = "exp/results/gumbel_evaluation_configs/bmoe-piecewiselinear/"
+    # model_type = 'bmoe'
+    gating_type = 'standard' if model_type == 'moe' else 'bayesian'
+    if model_type == 'tabm_mini_bmoe_adapter_sigmoid-piecewiselinear':
+        gating_type = 'sigmoid_adapter'
     reports = find_matching_files(input_folder)
     for r in reports:
         output = output_folder + r.removeprefix(input_folder).removesuffix('0-tuning/report.json')
