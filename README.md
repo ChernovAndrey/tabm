@@ -110,7 +110,7 @@ model = 'tabm'  # Or any other model from the exp/ directory.
 # Load all training runs.
 df = pd.json_normalize([
     json.loads(x.read_text())
-    for x in Path('exp').glob(f'{model}/**/0-evaluation/*/report.json')
+    for x in Path('exp').glob(f'{model}/**/0-bayesian-evaluation/*/report.json')
 ])
 print(df.shape)  # (1290, 181)
 df.head()
@@ -241,7 +241,7 @@ model = 'tabm'  # Or any other model from the exp/ directory.
 # Load all training runs.
 df = pd.json_normalize([
     json.loads(x.read_text())
-    for x in Path('exp').glob(f'{model}/**/0-evaluation/*/report.json')
+    for x in Path('exp').glob(f'{model}/**/0-bayesian-evaluation/*/report.json')
 ])
 df['Dataset'] = df['config.data.path'].map(get_dataset_name)
 

@@ -12,7 +12,8 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
                           'bmoe_adapter_sigmoid_normal_init',
                           'bmoe_adapter_sigmoid_kmeans',
                           'bmoe_adapter_sigmoid_tabm_mini', f'bmoe_adapter_sigmoid_tabm_mini_top_{top_k}',
-                          f'bmoe_adapter_sigmoid_tabm_mini_top_{top_k}_64', 'gg_bmoe_tabm_mini'], "Incorrect model_type"
+                          f'bmoe_adapter_sigmoid_tabm_mini_top_{top_k}_64', 'gg_bmoe_tabm_mini',
+                          f'gg_bmoe_tabm_mini_{hidden_dim}'], "Incorrect model_type"
     # Ensure destination folder exists
     Path(dest_folder).mkdir(parents=True, exist_ok=True)
 
@@ -36,7 +37,7 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
 
         # Modify optimizer settings
         optimizer = config["space"]["optimizer"]
-        if model_type not in ['gg_bmoe_tabm_mini']:
+        if model_type not in ['gg_bmoe_tabm_mini', f'gg_bmoe_tabm_mini_{hidden_dim}']:
             if model_type in ('bmoe_adapter_sigmoid_big', 'bmoe_adapter_sigmoid_medium', 'bmoe_adapter_sigmoid_attention'):
                 optimizer["lr"] = ["_tune_", "loguniform", 0.0001, 0.005]
             elif model_type not in ['bmoe_adapter_sigmoid_tabm_mini', f'bmoe_adapter_sigmoid_tabm_mini_top_{top_k}',
@@ -67,13 +68,16 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
         elif model_type == f'bmoe_adapter_sigmoid_tabm_mini_top_{top_k}_64':
             model_backbone["d_block"] = ["_tune_", "int", 1280, 2560, 64]
             model_backbone["d_block_per_expert"] = 64
+        elif model_type == f'gg_bmoe_tabm_mini_{hidden_dim}':
+            model_backbone["d_block"] = ["_tune_", "int", 4*hidden_dim, 32*hidden_dim, 2*hidden_dim]
+            model_backbone["d_block_per_expert"] = hidden_dim
         else:
             model_backbone["d_block"] = ["_tune_", "int", 128, 1280, 64]
             model_backbone["d_block_per_expert"] = ["_tune_", "int", 32, 64, 32]
         # model_backbone["d_block"] = ["_tune_", "int", 256, 2560, 128]
         # model_backbone["d_block_per_expert"] = ["_tune_", "int", 32, 128, 32]
 
-        if model_type in ('bmoe', 'deepbmoe', 'gmlp_bmoe', 'bmoe_adapter', 'gg_bmoe_tabm_mini'):
+        if model_type in ('bmoe', 'deepbmoe', 'gmlp_bmoe', 'bmoe_adapter', 'gg_bmoe_tabm_mini', f'gg_bmoe_tabm_mini_{hidden_dim}'):
             # model_backbone["dropout"] = 0.0
             # model_backbone["gating_prior_std"] = ["_tune_", "uniform", 0.1, 1.0]
             # model_backbone["kl_factor"] = ["_tune_", "loguniform", 0.001, 1.0]
@@ -102,7 +106,7 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
                           f'bmoe_adapter_sigmoid_tabm_mini_top_{top_k}_64']:
             model_backbone["adapter"] = True
         # Add new variables
-        if model_type in ('bmoe', 'deepbmoe', 'gmlp_bmoe', 'bmoe_adapter', 'gg_bmoe_tabm_mini'):
+        if model_type in ('bmoe', 'deepbmoe', 'gmlp_bmoe', 'bmoe_adapter', 'gg_bmoe_tabm_mini', f'gg_bmoe_tabm_mini_{hidden_dim}'):
             model_backbone["gating_type"] = "bayesian"
         elif model_type in ('bmoe_adapter_sigmoid', 'bmoe_adapter_sigmoid_normal_init',
                             'bmoe_adapter_sigmoid_big',
@@ -134,12 +138,13 @@ def modify_and_copy_configs(src_folder, dest_folder, model_type: str):
 
         print(f"Modified config saved to: {dest_config_path}")
 
-top_k = 8
+top_k = 32
+hidden_dim = 128
 # model_type = 'gmlp_bmoe'
 # model_type = 'bmoe_adapter_sigmoid_normal_init'
 # model_type = 'bmoe_adapter_sigmoid_attention'
 # model_type = f'bmoe_adapter_sigmoid_tabm_mini_top_{top_k}_64'
-model_type = f'gg_bmoe_tabm_mini'
+model_type = f'gg_bmoe_tabm_mini_{hidden_dim}'
 embeddings = "-piecewiselinear"
 # embeddings = ""
 # Define source and destination folders

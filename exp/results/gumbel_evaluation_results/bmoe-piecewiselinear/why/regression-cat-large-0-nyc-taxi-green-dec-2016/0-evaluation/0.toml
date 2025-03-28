@@ -4,14 +4,6 @@ patience = 16
 n_epochs = -1
 gradient_clipping_norm = 1.0
 amp = true
-n_bayesian_ensembles = [
-    1,
-    5,
-    10,
-    100,
-]
-num_samples = 100
-return_average = false
 
 [data]
 cache = true

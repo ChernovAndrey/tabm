@@ -84,7 +84,8 @@ def extract_scores(report_files, n=0):
                 model_type += '_tabm'
             if 'top_8_64' in file_path:
                 model_type += '_top_8_64'
-
+            if 'gg_bmoe_tabm_mini-piecewiselinear' in file_path:
+                model_type = 'BmoE_gumbel_tabm_mini'
             if 'bmoe_adapter-piecewiselinear' in file_path:
                 model_type += '_adapter'
             if 'bmoe_adapter_sigmoid-piecewiselinear' in file_path:
@@ -252,11 +253,14 @@ def main():
     elif type == 'advanced':
         base_paths = [
             "exp/mlp-piecewiselinear",
-            # "exp/results/evaluation_results_16_04_2024/moe-piecewiselinear",
+            "exp/results/evaluation_results_16_04_2024/moe-piecewiselinear",
             "exp/results/gumbel_evaluation_results/bmoe-piecewiselinear",
 
-            "exp_advanced/results/bmoe_adapter-piecewiselinear",
-            "exp_advanced/results/bmoe_adapter_sigmoid-piecewiselinear",
+            "exp_advanced/results/gg_bmoe_tabm_mini-piecewiselinear",
+            "exp_advanced/results/tabm-mini-piecewiselinear",
+
+            # "exp_advanced/results/bmoe_adapter-piecewiselinear",
+            # "exp_advanced/results/bmoe_adapter_sigmoid-piecewiselinear",
 
             # "exp_advanced/results/bmoe_adapter_sigmoid_tabm_mini-piecewiselinear",
             # "exp_advanced/results/bmoe_adapter_sigmoid_tabm_mini_top_8_64-piecewiselinear",
@@ -264,16 +268,16 @@ def main():
             # "exp_advanced/results/deepbmoe-piecewiselinear",
             # "exp_advanced/results/gmlp_bmoe-piecewiselinear",
 
-            # "exp/tabm-mini-piecewiselinear",
+            "exp/tabm-mini-piecewiselinear",
             # "exp/tabm-piecewiselinear",
 
             # "exp_advanced/results/bmoe_adapter_sigmoid_big-piecewiselinear",
             # "exp_advanced/results/bmoe_adapter_sigmoid_medium-piecewiselinear",
             # "exp_advanced/results/bmoe_adapter_sigmoid_normal_init-piecewiselinear",
 
-            # "exp_advanced/results/gbdt/catboost_",
-            # "exp_advanced/results/gbdt/xgboost_",
-            # "exp_advanced/results/gbdt/lightgbm_",
+            "exp_advanced/results/gbdt/catboost_",
+            "exp_advanced/results/gbdt/xgboost_",
+            "exp_advanced/results/gbdt/lightgbm_",
         ]
     else:
         base_paths = [
@@ -325,10 +329,11 @@ def main():
 
     if type not in ['x2', 'gumbel', 'advanced']:
         df = df.loc[df['model_type'].isin(['MoE', 'E+MoE', 'MLP', 'E+MLP'])]
-
+    # print(df['model_type'].unique())
     # calculated_datasets = df.loc[df['model_type'] == 'E+BMoE_adapter_sigmoid_tabm_mini']['dataset_name'].values
     # calculated_datasets = df.loc[df['model_type'] == 'E+BMoE_adapter_sigmoid']['dataset_name'].values
-    calculated_datasets = df.loc[df['model_type'] == 'E+BMoE_gumbel_10']['dataset_name'].values
+    # calculated_datasets = df.loc[df['model_type'] == 'E+BMoE_gumbel_10']['dataset_name'].values
+    calculated_datasets = df.loc[df['model_type'] == 'E+BmoE_gumbel_tabm_mini']['dataset_name'].values
     # calculated_datasets = df.loc[df['model_type'] == 'E+BMoE_top_8_64_adapter_sigmoid_tabm_mini']['dataset_name'].values
     # calculated_datasets = df.loc[df['model_type'] == 'E+BMoE_big']['dataset_name'].values
 
@@ -350,6 +355,11 @@ def main():
     print(f'missing datasets gbdt: {np.setdiff1d(calculated_datasets, gbdt_datasets)}')
 
     df = df.loc[df['dataset_name'].isin(calculated_datasets)]
+    df = df.loc[~df['dataset_name'].isin(
+        ['classif-num-large-0-jannis', 'classif-cat-large-0-road-safety',
+         'regression-cat-large-0-particulate-matter-ukair-2017',
+         'regression-cat-large-0-nyc-taxi-green-dec-2016', 'classif-num-large-0-MiniBooNE',
+         'regression-num-large-0-year', 'higgs-small', 'black-friday', 'covtype2', 'microsoft'])]
     df['dataset_name'] = df['dataset_name'].apply(lambda x: f"{x}_" if x.endswith('higgs-small') else x)
     df['dataset_index'] = df['dataset_name'].apply(lambda x: x.split('-')[-1])
 

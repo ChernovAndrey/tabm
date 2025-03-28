@@ -115,7 +115,7 @@ class Model(nn.Module):
         # >>> Backbone
         d_flat = d_num + d_cat
         self.minimal_ensemble_adapter = None
-        if backbone['type'] in ['BMoE', 'BMoIE']:
+        if backbone['type'] in ['BMoE', 'BMoIE', 'DeepBMoE']:
             d_out = 1 if n_classes is None else n_classes
         else:
             d_out = None
@@ -168,7 +168,7 @@ class Model(nn.Module):
 
         # >>> Output
 
-        if backbone['type'] in ['BMoE', 'BMoIE']:
+        if backbone['type'] in ['BMoE', 'BMoIE', 'DeepBMoE']:
             self.output = None
         else:
             d_block = backbone['d_block']
@@ -596,5 +596,5 @@ for n in num_samples:
     # print(file.split('/'))
 # print(res)
 # Save to a pickle file
-with open("execution_time_all.pkl", "wb") as file:
+with open("execution_time_mlp.pkl", "wb") as file:
     pickle.dump(res, file)

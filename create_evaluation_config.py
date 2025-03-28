@@ -86,8 +86,8 @@ if __name__ == '__main__':
     # Input and output file paths
 
     # model_type = 'mlp'
-    model_type = 'gg_moe_no_sampling'
-    # model_type = 'tabm_mini'
+    # model_type = 'gg_moe_no_sampling'
+    model_type = 'tabm_mini'
     # model_type = 'moe_adapter_sigmoid'
     # model_type = 'tabm_mini_bmoe_adapter_sigmoid-piecewiselinear'
     # input_folder = 'exp/results/evaluation_15_04_2024/moe-piecewiselinear'
@@ -96,14 +96,16 @@ if __name__ == '__main__':
     # input_folder = 'exp_advanced/results/bmoe_adapter_sigmoid-piecewiselinear/'
     # input_folder = 'exp/mlp-piecewiselinear/'
 
-    # input_folder = 'exp/tabm-mini-piecewiselinear/'
+    input_folder = 'exp/tabm-mini-piecewiselinear/'
     # input_folder = 'exp_advanced/results/bmoe_adapter_sigmoid_tabm_mini-piecewiselinear/'
-    input_folder = 'exp_advanced/results/bmoe_adapter_sigmoid-piecewiselinear/'
+    # input_folder = 'exp_advanced/results/bmoe_adapter_sigmoid-piecewiselinear/'
 
 
     # output_folder = "exp/results/evaluation_16_04_2024/moe-piecewiselinear/"
     # output_folder = "exp_advanced/evaluation_10_03_2025/tabm-mini-piecewiselinear/"
-    output_folder = "exp_advanced/evaluation_10_03_2025/bmoe_adapter_sigmoid_piecewiselinear/"
+    # output_folder = "exp_advanced/evaluation_10_03_2025/bmoe_adapter_sigmoid_piecewiselinear/"
+    # output_folder = "exp_advanced/evaluation_10_03_2025/bmoe_adapter_sigmoid_piecewiselinear/"
+    output_folder = "exp_reproduce/tabm-mini-piecewiselinear/"
     # model_type = 'moe'
 
     # input_folder = 'exp/results/gumbel_tuning_results/bmoe-piecewiselinear/'

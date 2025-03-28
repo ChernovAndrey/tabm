@@ -180,3 +180,5 @@ events.out.tfevents.*
 # Other
 local/
 .env
+/exp/results/evaluation_results_16_04_2024/
+/exp_advanced/results/gbdt/

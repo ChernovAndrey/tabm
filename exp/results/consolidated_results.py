@@ -9,7 +9,7 @@ data_list = []
 # Directories to search for report.json files
 # directories_to_search = ["moe/", "bmoe/", "moe-piecewiselinear/", "bmoe-piecewiselinear/", "../mlp/",
 #                          '../mlp-piecewiselinear/']
-type = 'gumbel'  # or x1 or x2
+type = 'x2'  # or x1 or x2 or gumbel
 if type == 'x1':
     directories_to_search = ["evaluation_15_04_2024/moe", "evaluation_15_04_2024/moe-piecewiselinear", "../mlp/",
                              '../mlp-piecewiselinear/']
@@ -130,6 +130,8 @@ else:
 calculated_datasets = df.loc[df['backbone_type'] == main_model_type]['dataset_name'].values
 calculated_datasets_emoe = df.loc[df['backbone_type'] == 'E+' + main_model_type]['dataset_name'].values
 print(f'MoE - E+MoE datasets:{np.setdiff1d(calculated_datasets, calculated_datasets_emoe)}')
+print(f'E+MoE - MoE datasets:{np.setdiff1d(calculated_datasets_emoe, calculated_datasets)}')
+
 all_datasets = df.loc[df['backbone_type'] == 'E+MLP']['dataset_name'].values
 print('missing datasets:')
 print(np.setdiff1d(all_datasets, calculated_datasets))
@@ -203,9 +205,7 @@ print(avg_n_param_reg)
 avg_rank_clf = df.loc[df['task'] == 'classification'].groupby('backbone_type')['rank'].mean()
 avg_rank_reg = df.loc[df['task'] == 'regression'].groupby('backbone_type')['rank'].mean()
 
-# Print the result
-print('avg rank:')
-print(avg_rank)
+
 
 print('avg rank train:')
 print(avg_rank_train)
@@ -219,3 +219,10 @@ print(len(df.loc[df['backbone_type'] == 'MoE']))
 print(len(df.loc[df['backbone_type'] == 'E+MoE']))
 print(len(df.loc[df['backbone_type'] == 'MLP']))
 print(len(df.loc[df['backbone_type'] == 'E+MLP']))
+print(len(df.loc[df['backbone_type'] == 'E+MoE_x2']))
+print(len(df.loc[df['backbone_type'] == 'MoE_x2']))
+
+
+# Print the result
+print('avg rank:')
+print(avg_rank)
